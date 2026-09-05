@@ -49,17 +49,23 @@ const TEST_HOME = join(repoRoot, ".pi-test-home");
 export async function bootPi(paintMs = 15000, stableMs = 15000): Promise<TestTerminal> {
   const term = createTerminal({ backend: createVtermBackend(), cols: 100, rows: 30 });
 
-  await term.spawn(
-    // --tui-mode fullscreen: pi's default is "regular"; INTENT/AGENTS require the
-    // fullscreen mode, so pin it explicitly rather than trusting the default.
-    [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen"],
-    {
-      cwd: repoRoot,
-      env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME },
-    }
-  );
-
-  await term.waitFor("pi v", paintMs);
-  await term.waitForStable(400, stableMs);
-  return term;
+  try {
+    await term.spawn(
+      // --tui-mode fullscreen: pi's default is "regular"; INTENT/AGENTS require the
+      // fullscreen mode, so pin it explicitly rather than trusting the default.
+      [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen"],
+      {
+        cwd: repoRoot,
+        env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME },
+      }
+    );
+    await term.waitFor("pi v", paintMs);
+    await term.waitForStable(400, stableMs);
+    return term;
+  } catch (e) {
+    // Startup rejected — close the PTY so the pi child isn't leaked, then rethrow
+    // the original error (close()'s own failure must not mask it).
+    await term.close().catch(() => {});
+    throw e;
+  }
 }
