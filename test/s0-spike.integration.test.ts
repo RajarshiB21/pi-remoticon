@@ -25,9 +25,7 @@ describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
   // that follow are warm and fast. The log line surfaces the real cold-boot cost
   // in CI so the budgets can be tuned from data, not guesses.
   beforeAll(async () => {
-    const t0 = Date.now();
-    const warm = await bootPi(20000, 10000); // DIAGNOSTIC: short budget for fast CI evidence
-    console.log(`[warm boot] frame-zero reached in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    const warm = await bootPi(60000, 30000); // generous cold-paint budget; 90s max, under the CI ceiling
     await warm.close();
   });
 

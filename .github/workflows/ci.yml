@@ -15,7 +15,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # pi requires Node >=22.19.0 (its bundle imports node:fs globSync,
+          # added in Node 22). Node 20 crashes pi at startup. Match local (24).
+          node-version: "24"
           cache: npm
 
       # npm ci compiles node-pty from source here (no Linux prebuild ships;
