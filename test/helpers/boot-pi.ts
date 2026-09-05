@@ -29,11 +29,13 @@ const FAKE_PROVIDER = join(repoRoot, "test", "fixtures", "fake-provider.ts");
 // between runs and no ambient auth from the user's ~/.pi ever leaks in.
 const TEST_HOME = join(repoRoot, ".pi-test-home");
 
-// Blank every known provider key so a real model is physically unreachable.
-const BLANKED_KEYS = [
-  "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
-  "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY", "MISTRAL_API_KEY",
-];
+// What actually keeps a real model unreachable (Rule 1) — not a key blanklist,
+// which can never be complete (termless spawns with `...process.env`):
+//   1. `--provider fake --model fake/fake-model` pins selection to the stub;
+//   2. the stub's baseUrl (127.0.0.1:1) is unreachable, so even a stray turn
+//      can't hit a network model;
+//   3. CI runs with no provider credentials at all;
+//   4. the spike test asserts the real frame shows the fake model, no openrouter.
 
 // Boot pi at native fullscreen under the fake model, settled to frame-zero.
 // Returns the live terminal; read it with `term.viewport.getText()` and always
@@ -47,16 +49,16 @@ export async function bootPi(): Promise<TestTerminal> {
     [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen"],
     {
       cwd: repoRoot,
-      env: {
-        TERM: "xterm-256color",
-        HOME: TEST_HOME,
-        USERPROFILE: TEST_HOME,
-        ...Object.fromEntries(BLANKED_KEYS.map((k) => [k, ""])),
-      },
+      env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME },
     }
   );
 
-  await term.waitFor("pi v", 20000);
-  await term.waitForStable(400, 20000);
+  // Ceilings, not sleeps: each returns as soon as its condition holds (warm boot
+  // ~2s). Kept so one boot's worst case (~25s) stays under vitest's 30s
+  // testTimeout — a real hang then fails with termless's specific message, not
+  // vitest's opaque one. The logo prints before the fd/ripgrep download, so
+  // waitFor is quick even cold; waitForStable absorbs a cold download's churn.
+  await term.waitFor("pi v", 10000);
+  await term.waitForStable(400, 15000);
   return term;
 }

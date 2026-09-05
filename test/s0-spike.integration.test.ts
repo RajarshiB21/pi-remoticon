@@ -26,26 +26,19 @@ describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
     await warm.close();
   });
 
-  it("captures the startup frame with the pi logo anchor present", async () => {
+  // Both of these inspect the same settled frame, so they share one boot.
+  it("renders frame-zero: pi logo, fake model (not a real one), native fullscreen", async () => {
     const term = await bootPi();
     try {
       const frame = term.viewport.getText();
       expect(frame).toContain("pi v"); // stable anchor, model-independent
       expect(frame).toContain("fake-model"); // the fake model was selected, not a real one
       expect(frame.toLowerCase()).not.toContain("openrouter");
-    } finally {
-      await term.close();
-    }
-  });
 
-  it("booted native fullscreen, not regular mode", async () => {
-    // In fullscreen pi pins the footer/status line to the bottom of the screen
-    // (transcript area fills the middle); in the default "regular" mode it floats
-    // inline near the content. So the footer's row is the mode's fingerprint:
-    // bottom-pinned => fullscreen. (regular puts it around row 15 of 30.)
-    const term = await bootPi();
-    try {
-      const footer = term.findText("fake-model"); // the model appears in the status line
+      // Fullscreen pins the footer/status line to the bottom row (transcript area
+      // fills the middle); the default "regular" mode floats it inline ~row 15 of
+      // 30. So the footer's row is the mode's fingerprint: bottom-pinned => fullscreen.
+      const footer = term.findText("fake-model");
       expect(footer).not.toBeNull();
       expect(footer!.row).toBeGreaterThanOrEqual(term.rows - 2);
     } finally {
@@ -53,6 +46,8 @@ describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
     }
   });
 
+  // Two boots, so give it headroom past the default 30s test timeout (still well
+  // under the suite's 2-minute CI ceiling).
   it("reads the same frame-zero twice (determinism)", async () => {
     const a = await bootPi();
     const frameA = stripVolatile(a.viewport.getText());
@@ -63,5 +58,5 @@ describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
     await b.close();
 
     expect(frameA).toBe(frameB);
-  });
+  }, 60000);
 });
