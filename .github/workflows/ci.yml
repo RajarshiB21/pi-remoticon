@@ -10,8 +10,15 @@ on:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # Least privilege: the gate only reads code and runs tests. PRs run install
+    # scripts (npm ci builds node-pty), so don't leave the checkout token in git
+    # config for a lifecycle script to reach (CWE-522).
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
