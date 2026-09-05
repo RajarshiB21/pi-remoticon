@@ -1,0 +1,40 @@
+name: CI
+
+# The lane-1..3 gate: Static (typecheck) + Unit + Integration. Runs on every
+# push and PR. It NEVER receives provider credentials, so a real-model call
+# fails by construction (spec Rule 1) — do not add API-key secrets to this job.
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      # npm ci compiles node-pty from source here (no Linux prebuild ships;
+      # ubuntu-latest has python3 + build tools).
+      - run: npm ci
+
+      # Cache pi's one-time fd/ripgrep download so the Integration lane stays fast.
+      - name: Cache pi test HOME
+        uses: actions/cache@v4
+        with:
+          path: .pi-test-home
+          key: pi-test-home-${{ runner.os }}
+
+      - name: Lane 1 — typecheck
+        run: npm run typecheck
+
+      # Lane 2 (Unit) + Lane 3 (Integration). The 2-minute step timeout is the
+      # spec's hard ceiling: if the gate ever crosses it, CI fails — that is a
+      # bug to fix, not a fact to accept. Target is under 60s.
+      - name: Lane 2+3 — unit + integration
+        run: npm test
+        timeout-minutes: 2

@@ -15,3 +15,7 @@ build/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Isolated pi HOME for the Integration lane (holds downloaded fd/ripgrep + a
+# throwaway pi config; kept out of git, cached in CI). Never the user's ~/.pi.
+.pi-test-home/
