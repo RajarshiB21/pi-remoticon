@@ -6,8 +6,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
-    testTimeout: 30000,
-    hookTimeout: 30000,
+    // A default boot's ceiling is 15s+15s=30s < testTimeout, so a hang fails
+    // with termless's own message. hookTimeout covers the cold warm-up boot
+    // (60s+30s=90s). The two-boot determinism test sets its own timeout inline.
+    testTimeout: 45000,
+    hookTimeout: 100000,
     // PTY spawns don't parallelize cleanly; keep the Integration lane serial.
     fileParallelism: false,
   },

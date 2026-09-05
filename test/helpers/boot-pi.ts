@@ -40,7 +40,13 @@ const TEST_HOME = join(repoRoot, ".pi-test-home");
 // Boot pi at native fullscreen under the fake model, settled to frame-zero.
 // Returns the live terminal; read it with `term.viewport.getText()` and always
 // `await term.close()`.
-export async function bootPi(): Promise<TestTerminal> {
+//
+// Defaults (15s + 15s) suit a warm boot (~2s real). The first boot on a cold
+// machine pays pi's one-time fd/ripgrep download and a cold bundle load, so the
+// warm-up caller passes a bigger paint budget. Ceilings, not sleeps: each
+// returns the instant its condition holds. Their sum is kept below the caller's
+// vitest timeout so a genuine hang fails with termless's own message.
+export async function bootPi(paintMs = 15000, stableMs = 15000): Promise<TestTerminal> {
   const term = createTerminal({ backend: createVtermBackend(), cols: 100, rows: 30 });
 
   await term.spawn(
@@ -53,12 +59,7 @@ export async function bootPi(): Promise<TestTerminal> {
     }
   );
 
-  // Ceilings, not sleeps: each returns as soon as its condition holds (warm boot
-  // ~2s). Kept so one boot's worst case (~25s) stays under vitest's 30s
-  // testTimeout — a real hang then fails with termless's specific message, not
-  // vitest's opaque one. The logo prints before the fd/ripgrep download, so
-  // waitFor is quick even cold; waitForStable absorbs a cold download's churn.
-  await term.waitFor("pi v", 10000);
-  await term.waitForStable(400, 15000);
+  await term.waitFor("pi v", paintMs);
+  await term.waitForStable(400, stableMs);
   return term;
 }

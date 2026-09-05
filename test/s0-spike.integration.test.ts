@@ -19,10 +19,15 @@ const stripVolatile = (s: string) =>
     .join("\n");
 
 describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
-  // Warm the test HOME so fd/ripgrep are cached before the measured boots —
-  // otherwise the first boot shows one-time download notices the second does not.
+  // Warm the test HOME before the measured boots: the first boot on a cold
+  // machine (fresh CI, or after cache eviction) pays pi's one-time fd/ripgrep
+  // download + cold bundle load, so give it a big budget. The measured boots
+  // that follow are warm and fast. The log line surfaces the real cold-boot cost
+  // in CI so the budgets can be tuned from data, not guesses.
   beforeAll(async () => {
-    const warm = await bootPi();
+    const t0 = Date.now();
+    const warm = await bootPi(60000, 30000); // generous cold-paint budget; 90s max, under the CI ceiling
+    console.log(`[warm boot] frame-zero reached in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     await warm.close();
   });
 
@@ -58,5 +63,5 @@ describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
     await b.close();
 
     expect(frameA).toBe(frameB);
-  }, 60000);
+  }, 75000); // two default boots (30s ceiling each) with headroom, still under the CI ceiling
 });
