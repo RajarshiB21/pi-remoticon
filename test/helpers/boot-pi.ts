@@ -59,7 +59,17 @@ export async function bootPi(paintMs = 15000, stableMs = 15000): Promise<TestTer
     }
   );
 
-  await term.waitFor("pi v", paintMs);
-  await term.waitForStable(400, stableMs);
+  try {
+    await term.waitFor("pi v", paintMs);
+    await term.waitForStable(400, stableMs);
+  } catch (e) {
+    // TEMPORARY DIAGNOSTIC (systematic-debugging Phase 1): show what pi actually
+    // did on this machine before the wait gave up. Remove once root cause found.
+    console.error("[bootPi] wait failed:", (e as Error).message);
+    console.error("[bootPi] alive:", term.alive, "| exitInfo:", JSON.stringify(term.exitInfo));
+    console.error("[bootPi] full buffer >>>\n" + term.buffer.getText() + "\n<<< end buffer");
+    await term.close();
+    throw e;
+  }
   return term;
 }
