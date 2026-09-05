@@ -67,7 +67,9 @@ export async function bootPi(paintMs = 15000, stableMs = 15000): Promise<TestTer
     // did on this machine before the wait gave up. Remove once root cause found.
     console.error("[bootPi] wait failed:", (e as Error).message);
     console.error("[bootPi] alive:", term.alive, "| exitInfo:", JSON.stringify(term.exitInfo));
-    console.error("[bootPi] full buffer >>>\n" + term.buffer.getText() + "\n<<< end buffer");
+    // Raw stream (not the rendered buffer): preserves pi's stderr error + stack
+    // without terminal wrapping or scrollback loss.
+    console.error("[bootPi] raw output >>>\n" + term.output.getText() + "\n<<< end raw output");
     await term.close();
     throw e;
   }
