@@ -70,7 +70,12 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
         // sends) and pi's explicit override (PI_TRUE_COLOR=1) so pi emits 24-bit on
         // every machine regardless of terminal detection. Verified locally: with
         // truecolor the composer border reads exactly 217,154,92; forced off, 215,135,95.
-        env: { TERM: "xterm-256color", COLORTERM: "truecolor", PI_TRUE_COLOR: "1", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
+        //
+        // COLORTERM/PI_TRUE_COLOR come AFTER `...env`: they are harness invariants
+        // (deterministic color is non-negotiable), so a caller's env override cannot
+        // silently reintroduce 256-color output. TERM/HOME/USERPROFILE stay before
+        // the spread, so callers may still override them (e.g. a per-test HOME).
+        env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env, COLORTERM: "truecolor", PI_TRUE_COLOR: "1" },
       }
     );
     // Two anchors, top and bottom, THEN settle. "pi v" (the logo) proves the
