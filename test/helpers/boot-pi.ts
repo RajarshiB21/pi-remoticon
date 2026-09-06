@@ -62,7 +62,15 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
       [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen", ...extraArgs],
       {
         cwd,
-        env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
+        // Pin truecolor. Without a truecolor hint pi falls back to the nearest
+        // 256-color approximation (e.g. #d99a5c -> 215,135,95), and the decision
+        // is OS-dependent — Windows consoles force truecolor, Linux CI does not —
+        // so an exact-RGB color assertion passes locally and fails on CI. We set
+        // both the standard hint (COLORTERM=truecolor, what a real 24-bit terminal
+        // sends) and pi's explicit override (PI_TRUE_COLOR=1) so pi emits 24-bit on
+        // every machine regardless of terminal detection. Verified locally: with
+        // truecolor the composer border reads exactly 217,154,92; forced off, 215,135,95.
+        env: { TERM: "xterm-256color", COLORTERM: "truecolor", PI_TRUE_COLOR: "1", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
       }
     );
     // Two anchors, top and bottom, THEN settle. "pi v" (the logo) proves the
