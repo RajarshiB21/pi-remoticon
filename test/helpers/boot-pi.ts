@@ -13,8 +13,9 @@ import { createVtermBackend } from "@termless/vterm";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-// Repo root = two levels up from test/helpers/.
-const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+// Repo root = two levels up from test/helpers/. Exported so slice tests build
+// their own paths (themes/, extensions/, fixtures/) off it, no abs paths.
+export const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 // pi's CLI, from the repo's own node_modules (no machine-absolute path). pi's
 // `exports` block ./package.json and the CJS require condition, and vitest's
@@ -46,17 +47,19 @@ const TEST_HOME = join(repoRoot, ".pi-test-home");
 // warm-up caller passes a bigger paint budget. Ceilings, not sleeps: each
 // returns the instant its condition holds. Their sum is kept below the caller's
 // vitest timeout so a genuine hang fails with termless's own message.
-export async function bootPi(paintMs = 15000, stableMs = 15000): Promise<TestTerminal> {
+export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], env: Record<string, string> = {}): Promise<TestTerminal> {
   const term = createTerminal({ backend: createVtermBackend(), cols: 100, rows: 30 });
 
   try {
     await term.spawn(
       // --tui-mode fullscreen: pi's default is "regular"; INTENT/AGENTS require the
       // fullscreen mode, so pin it explicitly rather than trusting the default.
-      [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen"],
+      // extraArgs lets a slice add its own flags (--theme, -e header.ts, ...) without
+      // each slice re-implementing the boot; S0 passes none and is unchanged.
+      [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen", ...extraArgs],
       {
         cwd: repoRoot,
-        env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME },
+        env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
       }
     );
     await term.waitFor("pi v", paintMs);
