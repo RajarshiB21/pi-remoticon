@@ -16,20 +16,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildFooterLine, type FooterUsage } from "../lib/footer-format.js";
 
 export default function (pi: ExtensionAPI) {
-  // Agent-state flag. agent_start -> working (green); agent_settled -> idle
-  // (yellow). requestRender is captured from the footer factory so the events
-  // can repaint. Module-scoped: one footer per session.
-  let working = false;
+  // The dot's resting truth is ctx.isIdle() (INTENT.md:91), read live in render —
+  // so an aborted/errored turn that skips agent_settled can't strand the dot
+  // green; the next repaint self-corrects. The agent_start/agent_settled events
+  // exist only to *trigger* that repaint when the state flips (isIdle changing
+  // does not itself request a render). requestRender is captured from the footer
+  // factory. Handlers are re-registered per session load (pi reloads the module).
   let requestRender: (() => void) | undefined;
-
-  pi.on("agent_start", async () => {
-    working = true;
-    requestRender?.();
-  });
-  pi.on("agent_settled", async () => {
-    working = false;
-    requestRender?.();
-  });
+  pi.on("agent_start", async () => requestRender?.());
+  pi.on("agent_settled", async () => requestRender?.());
 
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode !== "tui") return;
@@ -42,6 +37,7 @@ export default function (pi: ExtensionAPI) {
         dispose: unsub,
         invalidate() {},
         render(width: number): string[] {
+          const working = !ctx.isIdle();
           // Sum usage over the session branch (assistant messages only), as pi's
           // own custom-footer example does.
           let usage: FooterUsage | null = null;

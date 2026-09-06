@@ -4,7 +4,7 @@
 // the layout assertions and checked separately for color.
 import { describe, it, expect } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { buildFooterLine, fmtCount, cacheHitPct, hexFg, DOT_IDLE, DOT_WORKING, type FooterData } from "../lib/footer-format.js";
+import { buildFooterLine, fmtCount, cacheHitPct, hexFg, DOT_IDLE, DOT_WORKING, type FooterLineInput } from "../lib/footer-format.js";
 
 const stubTheme = { fg: (_c: string, t: string) => t } as unknown as Theme;
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -13,7 +13,7 @@ const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 // buildFooterLine is pure: it renders whatever modelId it is handed. The live
 // name comes from ctx.model.id at runtime (footer.ts); switching your model
 // changes the footer, never this test.
-const base: FooterData = {
+const base: FooterLineInput = {
   working: false,
   modelId: "deepseek-v4-flash", // mockup's example model (a constant, not your config)
   provider: "deepseek",
@@ -67,7 +67,7 @@ describe("buildFooterLine — idle", () => {
 });
 
 describe("buildFooterLine — working", () => {
-  const working: FooterData = {
+  const working: FooterLineInput = {
     ...base,
     working: true,
     usage: { input: 127, output: 97, cacheRead: 6700, cost: 0 },

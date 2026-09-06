@@ -45,7 +45,7 @@ export interface FooterUsage {
   cost: number;
 }
 
-export interface FooterData {
+export interface FooterLineInput {
   working: boolean;
   modelId: string;
   provider: string;
@@ -61,7 +61,7 @@ export interface FooterData {
 // Build the single footer line, sized to `width`. Right side (`cwd (branch)`) is
 // pinned hard right; when the two sides collide the LEFT cluster is truncated so
 // the cwd stays put (never wrap, never push cwd off-screen — the S3 floor).
-export function buildFooterLine(theme: Theme, d: FooterData, width: number): string {
+export function buildFooterLine(theme: Theme, d: FooterLineInput, width: number): string {
   const dim = (t: string) => theme.fg("dim", t);
   const muted = (t: string) => theme.fg("muted", t);
   const dot = hexFg(d.working ? DOT_WORKING : DOT_IDLE, "●");

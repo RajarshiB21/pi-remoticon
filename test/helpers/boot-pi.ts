@@ -74,9 +74,13 @@ function ackChangelog(home: string): void {
 export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], env: Record<string, string> = {}, cwd = repoRoot): Promise<TestTerminal> {
   const term = createTerminal({ backend: createVtermBackend(), cols: 100, rows: 30 });
 
-  // The effective HOME pi will use (callers may override via env); ack the
-  // changelog there so an update never hangs the boot behind the changelog view.
-  ackChangelog(env.HOME ?? env.USERPROFILE ?? TEST_HOME);
+  // Ack the changelog in every dir pi might read for config, so an update never
+  // hangs the boot behind the changelog view. The spawn sets HOME and USERPROFILE
+  // (Linux reads HOME, Windows USERPROFILE); stamp both effective values so it
+  // holds even if a caller overrides only one.
+  for (const dir of new Set([env.HOME ?? TEST_HOME, env.USERPROFILE ?? TEST_HOME])) {
+    ackChangelog(dir);
+  }
 
   try {
     await term.spawn(
