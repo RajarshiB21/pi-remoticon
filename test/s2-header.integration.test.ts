@@ -24,9 +24,11 @@ describe("S2: custom header (quietStartup + rebuild)", () => {
     quietHome = mkdtempSync(join(tmpdir(), "pi-quiet-home-"));
     cpSync(join(repoRoot, ".pi-test-home"), quietHome, { recursive: true });
     mkdirSync(join(quietHome, ".pi", "agent"), { recursive: true });
+    // lastChangelogVersion is stamped by bootPi (live pi VERSION) so an update
+    // never hangs the boot behind pi's changelog screen.
     writeFileSync(
       join(quietHome, ".pi", "agent", "settings.json"),
-      JSON.stringify({ lastChangelogVersion: "0.85.0", quietStartup: true }, null, 2)
+      JSON.stringify({ quietStartup: true }, null, 2)
     );
     quietEnv = { HOME: quietHome, USERPROFILE: quietHome };
     const warm = await bootPi(60000, 30000, headerArgs, quietEnv); // warm paint budget

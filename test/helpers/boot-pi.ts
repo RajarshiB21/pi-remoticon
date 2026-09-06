@@ -10,8 +10,10 @@
 //  - select the fake provider so no real/metered model is ever reachable.
 import { createTerminal, type TestTerminal } from "termless";
 import { createVtermBackend } from "@termless/vterm";
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 
 // Repo root = two levels up from test/helpers/. Exported so slice tests build
 // their own paths (themes/, extensions/, fixtures/) off it, no abs paths.
@@ -29,6 +31,34 @@ const FAKE_PROVIDER = join(repoRoot, "test", "fixtures", "fake-provider.ts");
 // A repo-local, git-ignored HOME so pi's one-time fd/ripgrep download is cached
 // between runs and no ambient auth from the user's ~/.pi ever leaks in.
 const TEST_HOME = join(repoRoot, ".pi-test-home");
+
+// Ack pi's changelog for the CURRENTLY installed version. After a pi update, a
+// home whose lastChangelogVersion is older than pi shows a full-screen changelog
+// instead of the normal header — which hides "pi v", so every frame-zero boot
+// hangs until timeout. Pinning to the live VERSION (not a hardcoded string) means
+// no test goes stale on the next update. Merges into any existing settings so a
+// caller's quietStartup/packages/theme survive.
+export function ackChangelog(home: string): void {
+  const dir = join(home, ".pi", "agent");
+  const file = join(dir, "settings.json");
+  mkdirSync(dir, { recursive: true });
+  let settings: Record<string, unknown> = {};
+  if (existsSync(file)) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+      // Only a plain object can carry the ack. null/array/primitive settings
+      // would throw on assignment or (for []) be dropped by JSON.stringify,
+      // silently leaving the changelog unacknowledged — so fall back to {}.
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        settings = parsed as Record<string, unknown>;
+      }
+    } catch {
+      settings = {};
+    }
+  }
+  settings.lastChangelogVersion = VERSION;
+  writeFileSync(file, JSON.stringify(settings, null, 2));
+}
 
 // What actually keeps a real model unreachable (Rule 1) — not a key blanklist,
 // which can never be complete (termless spawns with `...process.env`):
@@ -49,6 +79,14 @@ const TEST_HOME = join(repoRoot, ".pi-test-home");
 // vitest timeout so a genuine hang fails with termless's own message.
 export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], env: Record<string, string> = {}, cwd = repoRoot): Promise<TestTerminal> {
   const term = createTerminal({ backend: createVtermBackend(), cols: 100, rows: 30 });
+
+  // Ack the changelog in every dir pi might read for config, so an update never
+  // hangs the boot behind the changelog view. The spawn sets HOME and USERPROFILE
+  // (Linux reads HOME, Windows USERPROFILE); stamp both effective values so it
+  // holds even if a caller overrides only one.
+  for (const dir of new Set([env.HOME ?? TEST_HOME, env.USERPROFILE ?? TEST_HOME])) {
+    ackChangelog(dir);
+  }
 
   try {
     await term.spawn(
