@@ -47,7 +47,7 @@ const TEST_HOME = join(repoRoot, ".pi-test-home");
 // warm-up caller passes a bigger paint budget. Ceilings, not sleeps: each
 // returns the instant its condition holds. Their sum is kept below the caller's
 // vitest timeout so a genuine hang fails with termless's own message.
-export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], env: Record<string, string> = {}): Promise<TestTerminal> {
+export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], env: Record<string, string> = {}, cwd = repoRoot): Promise<TestTerminal> {
   const term = createTerminal({ backend: createVtermBackend(), cols: 100, rows: 30 });
 
   try {
@@ -56,9 +56,12 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
       // fullscreen mode, so pin it explicitly rather than trusting the default.
       // extraArgs lets a slice add its own flags (--theme, -e header.ts, ...) without
       // each slice re-implementing the boot; S0 passes none and is unchanged.
+      // cwd defaults to repoRoot; override it to boot from a directory that is NOT
+      // the package (the real scenario — users run pi elsewhere, with the package
+      // enabled through settings).
       [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen", ...extraArgs],
       {
-        cwd: repoRoot,
+        cwd,
         env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
       }
     );

@@ -3,7 +3,7 @@
 // fg/bold identity so the assertions read the plain text and order.
 import { describe, it, expect } from "vitest";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { buildHeaderLines } from "../extensions/header-lines.js";
+import { buildHeaderLines } from "../lib/header-lines.js";
 
 const stubTheme = { fg: (_c: string, t: string) => t, bold: (t: string) => t } as unknown as Theme;
 

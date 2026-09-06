@@ -13,7 +13,7 @@
 // header, so it already appears on its own.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { VERSION } from "@earendil-works/pi-coding-agent";
-import { buildHeaderLines } from "./header-lines.js";
+import { buildHeaderLines } from "../lib/header-lines.js";
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
