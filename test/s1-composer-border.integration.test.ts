@@ -24,18 +24,22 @@ describe("S1: composer border renders in the static tan", () => {
   it("has at least one frame-zero cell painted #d99a5c (the border)", async () => {
     const term = await bootPi(15000, 15000, themeArgs);
     try {
-      // Scan the visible rows (0..rows-1 = the viewport at frame-zero) for a cell
-      // painted the tan. term.row(n).cells is screen-indexed, so this reads the
-      // viewport, not scrollback.
+      // Read the VIEWPORT, not the absolute scrollback buffer (the pinned rule):
+      // getRows() returns the whole buffer with the screen as its last `rows`
+      // entries, so slice(-rows) is exactly the visible screen regardless of any
+      // scrollback. (term.row(n) indexes absolute buffer rows — row 0 is the
+      // oldest scrollback — so it is the trap here, not the fix.)
+      const screen = term.getRows().slice(-term.rows);
       let found = false;
-      for (let row = 0; row < term.rows && !found; row++) {
-        for (const cell of term.row(row).cells) {
+      for (const rowCells of screen) {
+        for (const cell of rowCells) {
           const fg = cell.fg;
           if (fg && fg.r === TAN.r && fg.g === TAN.g && fg.b === TAN.b) {
             found = true;
             break;
           }
         }
+        if (found) break;
       }
       expect(found, "no cell painted the static composer tan #d99a5c").toBe(true);
     } finally {
