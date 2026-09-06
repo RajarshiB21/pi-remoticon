@@ -4,7 +4,7 @@
 // Shape/smoke only — the exact idle/working strings are unit-tested
 // (test/footer-format.test.ts), not asserted against model text here.
 import { describe, it, expect, beforeAll } from "vitest";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { bootPi, repoRoot } from "./helpers/boot-pi.js";
 
 const FOOTER = join(repoRoot, "extensions", "footer.ts");
@@ -23,8 +23,14 @@ describe("S3: custom footer (idle layout)", () => {
       // The ● dot is unique to our footer (pi's default footer has none) — its
       // presence proves setFooter replaced the built-in footer.
       expect(frame).toContain("●");
-      // cwd is pinned hard right; boot cwd = repoRoot, so its basename shows.
-      expect(frame).toContain(basename(repoRoot));
+      // The footer row must END with the live `cwd (branch)` — proving the value
+      // wired through extensions/footer.ts is pinned hard right (not just present
+      // somewhere). Branch name is not hardcoded: repoRoot is a git repo so a
+      // parenthesized branch always follows the cwd, but the exact name varies
+      // (CI checks out a detached HEAD → "detached"), so we assert the shape.
+      const footerRow = frame.split("\n").reverse().find((r) => r.includes(repoRoot)) ?? "";
+      expect(footerRow, "no footer row contained the cwd").toContain(`${repoRoot} (`);
+      expect(footerRow.trimEnd().endsWith(")"), "cwd (branch) is not pinned to the right edge").toBe(true);
     } finally {
       await term.close();
     }

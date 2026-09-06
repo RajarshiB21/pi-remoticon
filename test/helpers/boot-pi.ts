@@ -38,14 +38,20 @@ const TEST_HOME = join(repoRoot, ".pi-test-home");
 // hangs until timeout. Pinning to the live VERSION (not a hardcoded string) means
 // no test goes stale on the next update. Merges into any existing settings so a
 // caller's quietStartup/packages/theme survive.
-function ackChangelog(home: string): void {
+export function ackChangelog(home: string): void {
   const dir = join(home, ".pi", "agent");
   const file = join(dir, "settings.json");
   mkdirSync(dir, { recursive: true });
   let settings: Record<string, unknown> = {};
   if (existsSync(file)) {
     try {
-      settings = JSON.parse(readFileSync(file, "utf8"));
+      const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+      // Only a plain object can carry the ack. null/array/primitive settings
+      // would throw on assignment or (for []) be dropped by JSON.stringify,
+      // silently leaving the changelog unacknowledged — so fall back to {}.
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        settings = parsed as Record<string, unknown>;
+      }
     } catch {
       settings = {};
     }
