@@ -9,7 +9,14 @@
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@earendil-works/pi-ai": ["./node_modules/@earendil-works/pi-ai"],
+      "@earendil-works/pi-ai/*": ["./node_modules/@earendil-works/pi-ai/*"],
+      "@earendil-works/pi-tui": ["./node_modules/@earendil-works/pi-tui"],
+      "@earendil-works/pi-tui/*": ["./node_modules/@earendil-works/pi-tui/*"]
+    }
   },
   "include": ["extensions/**/*.ts", "lib/**/*.ts", "test/**/*.ts"]
 }

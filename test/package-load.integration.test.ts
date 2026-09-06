@@ -22,9 +22,11 @@ describe("package load: pi boots with the pi-remoticon package enabled", () => {
     home = mkdtempSync(join(tmpdir(), "pi-pkg-home-"));
     cpSync(join(repoRoot, ".pi-test-home"), home, { recursive: true });
     mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    // lastChangelogVersion is stamped by bootPi (live pi VERSION) so an update
+    // never hangs the boot behind pi's changelog screen.
     writeFileSync(
       join(home, ".pi", "agent", "settings.json"),
-      JSON.stringify({ lastChangelogVersion: "0.85.0", quietStartup: true, theme: "remoticon", packages: [repoRoot] }, null, 2)
+      JSON.stringify({ quietStartup: true, theme: "remoticon", packages: [repoRoot] }, null, 2)
     );
     env = { HOME: home, USERPROFILE: home };
     // cwd = the home (a neutral dir that is NOT the package), matching the real
