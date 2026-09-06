@@ -49,11 +49,16 @@ describe("S4: status dot color tracks agent state", () => {
       term.press("Enter"); // named key is case-sensitive — "enter" would type literal text
       // The fake stream holds the working state ~300ms; poll for the green dot.
       let green = false;
+      let midTurnFrame = "";
       for (let i = 0; i < 40 && !green; i++) {
         await new Promise((r) => setTimeout(r, 100));
         green = hasColorCell(term, WORKING);
+        midTurnFrame = term.viewport.getText();
       }
       expect(green, "dot never turned working-green during the turn").toBe(true);
+      // The dot IS the working indicator — pi's built-in "Working" loader row
+      // must be hidden (setWorkingVisible(false)), not shown alongside the dot.
+      expect(midTurnFrame).not.toContain("Working");
     } finally {
       await term.close();
     }

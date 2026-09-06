@@ -29,6 +29,10 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode !== "tui") return;
 
+    // The dot IS the working indicator, so hide pi's built-in "Working" loader
+    // row above the composer — otherwise both show at once during a turn.
+    ctx.ui.setWorkingVisible(false);
+
     ctx.ui.setFooter((tui, theme, footerData) => {
       requestRender = () => tui.requestRender();
       const unsub = footerData.onBranchChange(() => tui.requestRender());
