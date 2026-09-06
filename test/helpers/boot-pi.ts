@@ -65,7 +65,16 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
         env: { TERM: "xterm-256color", HOME: TEST_HOME, USERPROFILE: TEST_HOME, ...env },
       }
     );
+    // Two anchors, top and bottom, THEN settle. "pi v" (the logo) proves the
+    // top painted; "fake-model" (the footer model id) proves the BOTTOM UI —
+    // the footer and the composer border just above it — painted too. Waiting on
+    // the top anchor alone is the frame-zero race that flaked CI: on a slower box
+    // pi has a quiet gap after the logo, waitForStable returns inside it, and the
+    // composer border has not painted yet. waitFor blocks until the text exists
+    // regardless of quiet gaps, so the bottom anchor closes that race; the final
+    // waitForStable then lets any last paint settle before we capture.
     await term.waitFor("pi v", paintMs);
+    await term.waitFor("fake-model", paintMs);
     await term.waitForStable(400, stableMs);
     return term;
   } catch (e) {
