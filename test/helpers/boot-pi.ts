@@ -77,7 +77,10 @@ export function ackChangelog(home: string): void {
 // warm-up caller passes a bigger paint budget. Ceilings, not sleeps: each
 // returns the instant its condition holds. Their sum is kept below the caller's
 // vitest timeout so a genuine hang fails with termless's own message.
-export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], env: Record<string, string> = {}, cwd = repoRoot): Promise<TestTerminal> {
+// piCli defaults to the repo's own installed pi. P0's drift guard overrides it to
+// boot a scratch COPY of pi (patched or pristine) instead — the one thing that
+// needs a pi other than node_modules'. Path only, so no absolute literal here.
+export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], env: Record<string, string> = {}, cwd = repoRoot, piCli = PI_CLI): Promise<TestTerminal> {
   const term = createTerminal({ backend: createVtermBackend(), cols: 100, rows: 30 });
 
   // Ack the changelog in every dir pi might read for config, so an update never
@@ -97,7 +100,7 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
       // cwd defaults to repoRoot; override it to boot from a directory that is NOT
       // the package (the real scenario — users run pi elsewhere, with the package
       // enabled through settings).
-      [process.execPath, PI_CLI, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen", ...extraArgs],
+      [process.execPath, piCli, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model", "--tui-mode", "fullscreen", ...extraArgs],
       {
         cwd,
         // Pin truecolor. Without a truecolor hint pi falls back to the nearest
