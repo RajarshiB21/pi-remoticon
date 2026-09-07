@@ -61,3 +61,44 @@ describe("S1: remoticon theme", () => {
     }
   });
 });
+
+// S1 — the calm-UI colour map. Hexes are the appearance authority (mockup.html /
+// INTENT palette), not the spec's prose (which has a known dim typo). Each token
+// is resolved one hop through vars.
+describe("S1: calm-UI colour map", () => {
+  const BG = "#1b1b1b";
+
+  it("kills the box — all three tool bg tokens resolve to the terminal ground", () => {
+    for (const token of ["toolPendingBg", "toolSuccessBg", "toolErrorBg"]) {
+      expect(resolve(theme.colors[token]), `${token} is not the terminal ground`).toBe(BG);
+    }
+  });
+
+  it("sets the locked colour-role hexes", () => {
+    const expected: Record<string, string> = {
+      text: "#d6d6d6",
+      muted: "#8a8a8a",
+      dim: "#6f6f6f", // mockup.html + INTENT; spec's #6f8a8a is a typo
+      error: "#e5695f",
+      success: "#5bc46b",
+      userMessageBg: "#3a3a46",
+      userMessageText: "#e8e8ea",
+      toolDiffAdded: "#8fe0a6",
+      toolDiffRemoved: "#e59b95",
+    };
+    for (const [token, hex] of Object.entries(expected)) {
+      expect(resolve(theme.colors[token]), `${token}`).toBe(hex);
+    }
+  });
+
+  it("holds the command/flag blues as values (S2's renderer consumes them; pi has no flag token)", () => {
+    expect(theme.vars.cmdBlue).toBe("#6ea8fe");
+    expect(theme.vars.flagBlue).toBe("#a9c9fb");
+  });
+
+  it("keeps blue OFF markdown — accent (mdCode/mdListBullet) stays teal, per INTENT 'blue = commands only'", () => {
+    expect(resolve(theme.colors.accent)).toBe("#8abeb7");
+    expect(theme.colors.mdCode).toBe("accent");
+    expect(theme.colors.mdListBullet).toBe("accent");
+  });
+});

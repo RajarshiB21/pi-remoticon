@@ -10,15 +10,20 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = dirname(testDir);
 
 describe("static: no machine-absolute paths in the harness", () => {
-  it("neither the boot helper nor the fixture hardcodes an absolute path", () => {
+  it("neither the boot helper, the fixture, nor the patch script hardcodes an absolute path", () => {
     // Any Windows drive path (C:\, D:\work, ...) or a POSIX absolute path rooted
     // at a machine-specific directory (/home, /Users, /tmp, /root, /var, /opt,
     // /mnt, /media, /private). Broad enough to catch /tmp/pi and C:\work\pi, not
     // just the ~/ forms.
     const abs = /[A-Za-z]:\\|\/(?:home|Users|tmp|root|var|opt|mnt|media|private)\//;
-    for (const f of [join(testDir, "helpers", "boot-pi.ts"), join(testDir, "fixtures", "fake-provider.ts")]) {
+    for (const f of [
+      join(testDir, "helpers", "boot-pi.ts"),
+      join(testDir, "fixtures", "fake-provider.ts"),
+      join(repoRoot, "scripts", "apply-core-patch.ts"),
+    ]) {
       expect(abs.test(readFileSync(f, "utf8")), `${f} contains an absolute path`).toBe(false);
     }
   });
