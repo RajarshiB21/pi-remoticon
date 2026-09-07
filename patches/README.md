@@ -22,7 +22,11 @@ contents, never by name.
 node scripts/apply-core-patch.ts [targetPackageDir]
 ```
 
-- No argument → patches this repo's local devDependency copy of pi.
+- No argument → patches this repo's local devDependency copy of pi. **Heads-up before using
+  this form:** the integration drift guard boots its pristine (negative) copy FROM that same
+  devDependency, so a devDependency patched by hand makes the negative test fail loudly (it expects
+  the original tall bar and gets the thin one). That is the guard working, not a broken install —
+  restore the pristine source with `npm ci`.
 - **After every real `pi update`**, run it by hand pointed at the global install package, e.g.
   `node scripts/apply-core-patch.ts "$APPDATA/npm/node_modules/@earendil-works/pi-coding-agent"`.
   `npm i -g` cannot trigger this patch, so it is a documented manual step.
