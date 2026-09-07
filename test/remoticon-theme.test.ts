@@ -64,13 +64,15 @@ describe("S1: remoticon theme", () => {
 
 // S1 — the calm-UI colour map. Hexes are the appearance authority (mockup.html /
 // INTENT palette), not the spec's prose (which has a known dim typo). Each token
-// is resolved one hop through vars.
+// is resolved one hop through vars. Box death uses pi's schema-sanctioned empty
+// string ("terminal default"): bgAnsi("") emits only a background reset, so the
+// Box wrapper paints nothing — tool rows sit on whatever background the user's
+// terminal has. A color literal can never do that (a #1b1b1b box only blends on
+// a #1b1b1b terminal), so the tokens are empty, not ground-colored.
 describe("S1: calm-UI colour map", () => {
-  const BG = "#1b1b1b";
-
-  it("kills the box — all three tool bg tokens resolve to the terminal ground", () => {
+  it("kills the box — all three tool bg tokens are the empty string (pi paints no background)", () => {
     for (const token of ["toolPendingBg", "toolSuccessBg", "toolErrorBg"]) {
-      expect(resolve(theme.colors[token]), `${token} is not the terminal ground`).toBe(BG);
+      expect(theme.colors[token], `${token} should be "" (terminal default — paint nothing)`).toBe("");
     }
   });
 

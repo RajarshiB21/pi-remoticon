@@ -19,7 +19,7 @@ const TOOLCALL_TRIGGER = "RUNTOOL";
 // Does this turn's context ask for — and not yet have — a tool call? The context
 // carries the running conversation (StreamFunction = (model, context, options)).
 // Turn 1: the user text holds the trigger and no toolResult exists yet -> emit an
-// `ls` call. Turn 2: pi has run the tool and appended a toolResult -> fall through
+// `read` call. Turn 2: pi has run the tool and appended a toolResult -> fall through
 // to plain text, so the agent settles instead of looping forever.
 function wantsToolCall(context?: Context): boolean {
   const messages = context?.messages ?? [];
@@ -65,10 +65,10 @@ export default function (pi: ExtensionAPI) {
       (async () => {
         stream.push({ type: "start", partial: out });
         if (wantsToolCall(context)) {
-          // One `ls` call — read-only, OS-neutral, no shell. Renders a tool row
+          // One `read` call — read-only, OS-neutral, no shell. Renders a tool row
           // (the umbrella's ToolExecutionComponent) so the box-death theme change
           // can be checked against a real tool. pi executes it and re-invokes us.
-          const toolCall = { type: "toolCall" as const, id: "call_1", name: "ls", arguments: { path: "." } };
+          const toolCall = { type: "toolCall" as const, id: "call_1", name: "read", arguments: { path: "package.json" } };
           out.content.push(toolCall);
           const argsJson = JSON.stringify(toolCall.arguments);
           stream.push({ type: "toolcall_start", contentIndex: 0, partial: out });
