@@ -20,9 +20,7 @@
 		"selectedBg": "#3a3a4a",
 		"customMsgBg": "#2d2838",
 		"composer": "#d99a5c",
-		"diffAddBg": "#123021",
 		"diffAddTx": "#8fe0a6",
-		"diffDelBg": "#3a1417",
 		"diffDelTx": "#e59b95"
 	},
 	"colors": {

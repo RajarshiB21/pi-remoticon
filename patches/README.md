@@ -18,7 +18,7 @@ contents, never by name.
 
 ## Running it
 
-```
+```sh
 node scripts/apply-core-patch.ts [targetPackageDir]
 ```
 
@@ -33,4 +33,6 @@ node scripts/apply-core-patch.ts [targetPackageDir]
 
 The script is idempotent (re-running reports "already applied") and fails loudly, naming the missing
 string, if pi moved the target — that failure is the drift guard, not a crisis: update the find-string
-to match pi's new source.
+to match pi's new source. It also fails loudly on an *inconsistent* state (the replacement already
+present somewhere while an original target still exists — pi duplicated or partially moved the code),
+never reporting "already applied" while an unpatched site remains.

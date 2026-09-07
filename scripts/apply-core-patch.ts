@@ -66,27 +66,39 @@ export type EntryDecision =
  * Pure — no file I/O — so the whole guard logic is unit-testable.
  *
  * files: chunk filename -> content.
- * Throws (loudly, naming the entry + string) when the target is missing or
- * ambiguous; that loud failure IS the drift guard — a pi update that condenses
- * or moves the target trips it here, never a silent no-op.
+ * Throws (loudly, naming the entry + string) on: target missing (drift), target
+ * ambiguous, or a MIXED state (replacement already present somewhere while an
+ * original target still exists) — that loud failure IS the drift guard; a pi
+ * update that condenses, moves, or duplicates the target trips it here, never a
+ * silent no-op or a falsely-reported "already applied".
  */
 export function decideEntry(files: ReadonlyMap<string, string>, entry: PatchEntry): EntryDecision {
-  // Idempotency first: if the replacement is already present anywhere, this entry
-  // is done. Checked before `find`, because after a successful apply the `find`
-  // string is gone (count 0) and would otherwise look like drift.
-  for (const content of files.values()) {
-    if (content.includes(entry.replace)) return { kind: "already-applied" };
-  }
-
-  // Count `find` across all chunks. Exactly one hit in exactly one file is the
-  // only acceptable state.
+  // Count original-target hits across all chunks AND check whether the
+  // replacement is present anywhere. Both must be known before deciding: after a
+  // successful apply the find-string is gone (so absence of `find` alone must
+  // not look like drift), and a package holding the replacement in one chunk
+  // while an original target still sits in another is an inconsistent state that
+  // must fail loudly, not report "already applied" (which would silently leave
+  // the second site unpatched).
   const hits: string[] = [];
+  let replaced = false;
   for (const [file, content] of files) {
+    if (content.includes(entry.replace)) replaced = true;
     let idx = content.indexOf(entry.find);
     while (idx !== -1) {
       hits.push(file);
       idx = content.indexOf(entry.find, idx + entry.find.length);
     }
+  }
+
+  if (replaced) {
+    if (hits.length === 0) return { kind: "already-applied" };
+    throw new Error(
+      `[apply-core-patch] "${entry.name}": inconsistent patch state — the replacement is already present` +
+        ` but the original target still exists ${hits.length} time(s) (in ${[...new Set(hits)].join(", ")}). ` +
+        `This is the drift guard firing: pi likely duplicated or partially moved this code. ` +
+        `Update the find/replace strings for "${entry.name}" to match the new pi source.`
+    );
   }
 
   if (hits.length === 0) {

@@ -61,6 +61,19 @@ describe("P0: decideEntry (patch guard logic)", () => {
     ]);
     expect(() => decideEntry(files, entry)).toThrow(/ambiguous/);
   });
+
+  it("mixed state: replacement in one chunk while an original target still exists elsewhere -> throws, never 'already applied'", () => {
+    const files = new Map([
+      ["chunk-A.js", wrap(entry.replace)], // already patched
+      ["chunk-B.js", wrap(entry.find)], // still original — must not be silently skipped
+    ]);
+    expect(() => decideEntry(files, entry)).toThrow(/inconsistent/);
+  });
+
+  it("mixed state within one chunk also throws", () => {
+    const files = new Map([["chunk-A.js", wrap(entry.find) + wrap(entry.replace)]]);
+    expect(() => decideEntry(files, entry)).toThrow(/inconsistent/);
+  });
 });
 
 describe("P0: the shipped patch list", () => {
