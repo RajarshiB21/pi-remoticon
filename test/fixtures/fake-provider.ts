@@ -18,10 +18,7 @@ import { randomUUID } from "node:crypto";
 // S1's box-death test opts in by putting the token in its message.
 const TOOLCALL_TRIGGER = "RUNTOOL";
 
-// Does this turn's context ask for — and not yet have — a tool call? The context
-// carries the running conversation (StreamFunction = (model, context, options)).
-// Only results after the latest user request settle that scenario. Earlier
-// results must not prevent the next RUNTOOL request from running its own read.
+/** Trigger one read per latest RUNTOOL request; earlier tool results do not settle it. */
 export function wantsToolCall(context?: Context): boolean {
   const messages = context?.messages ?? [];
   const userIndex = messages.map(m => m.role).lastIndexOf("user");
@@ -35,6 +32,7 @@ export function wantsToolCall(context?: Context): boolean {
   return text.includes(TOOLCALL_TRIGGER);
 }
 
+/** Register finite text/tool streams with abort handling and no network adapter. */
 export default function (pi: ExtensionAPI) {
   pi.registerProvider("fake", {
     name: "Fake (test)",

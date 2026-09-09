@@ -9,8 +9,10 @@ export const REPAIRED_PTY_HASH = "4a03e43ab60106322b822397e217340a0882c7e531c2f2
 // node-pty MIT, copyright Christopher Jeffrey. See patches/README.md.
 export const ORIGINAL_CLEANUP = "                });\n                this._ptyNative.kill(this._pty, this._useConptyDll);\n                this._conoutSocketWorker.dispose();";
 export const REPAIRED_CLEANUP = "                    _this._ptyNative.kill(_this._pty, _this._useConptyDll);\n                    _this._conoutSocketWorker.dispose();\n                });";
+/** Fingerprint full dependency bytes before accepting either supported state. */
 const hash = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
+/** Reject links through every parent so setup cannot redirect outside its target. */
 function rejectLinks(path: string): void {
   for (let current = path; ; current = dirname(current)) {
     if (lstatSync(current).isSymbolicLink()) throw new Error("Refusing a linked node-pty package or file");

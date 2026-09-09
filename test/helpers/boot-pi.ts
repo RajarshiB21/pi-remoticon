@@ -14,6 +14,7 @@ const PI_CLI = join(repoRoot, "node_modules", "@earendil-works", "pi-coding-agen
 const FAKE_PROVIDER = join(repoRoot, "test", "fixtures", "fake-provider.ts");
 const CACHED_BIN = join(repoRoot, ".pi-test-home", ".pi", "agent", "bin");
 
+/** Acknowledge this pi version only in the owned test settings directory. */
 export function ackChangelog(home: string): void {
   const dir = join(home, ".pi", "agent");
   const file = join(dir, "settings.json");
@@ -48,6 +49,7 @@ export function validateTestArgs(args: readonly string[]): void {
 
 export interface BootSettings { quietStartup?: boolean; package?: boolean }
 
+/** Boot the offline fake model with fresh directories, removed when the terminal closes. */
 export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], settings: BootSettings = {}, cwd?: string, piCli = PI_CLI): Promise<TestTerminal> {
   validateTestArgs(extraArgs);
   if (Object.keys(settings).some(key => key !== "quietStartup" && key !== "package")) throw new Error("Only fixture startup/package settings are allowed");

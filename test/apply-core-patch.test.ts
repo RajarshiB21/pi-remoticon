@@ -78,7 +78,10 @@ describe("S0 pure patch plan", () => {
   });
 
   it("matches normalized CLI/launcher tokens and relatives without matching another installation", () => {
-    const row = (pid: number, parentPid: number, commandLine: string): ProcessRecord => ({ pid, parentPid, commandLine, executable: "C:\\node.exe", name: "node.exe" });
+    const row = (pid: number, parentPid: number, commandLine: string): ProcessRecord => {
+      const name = commandLine.split(" ")[0];
+      return { pid, parentPid, commandLine, executable: `C:\\${name}.exe`, name: `${name}.exe` };
+    };
     const rows = [row(1, 0, "terminal"), row(2, 1, 'node "C:\\PI\\dist\\bundle\\cli.js" --prompt secret'),
       row(3, 2, "helper"), row(4, 1, 'node "C:\\PI-other\\dist\\bundle\\cli.js"'), row(5, 1, "unrelated")];
     expect(affectedProcesses(rows, ["c:/pi/dist/bundle/cli.js"], true)).toEqual([1, 2, 3]);
@@ -88,6 +91,37 @@ describe("S0 pure patch plan", () => {
     expect(affectedProcesses([row(7, 0, 'node "C:\\PI\\dist\\other\\..\\bundle\\cli.js"')], ["c:/pi/dist/bundle/cli.js"], true)).toEqual([7]);
     for (const command of ['node dist/bundle/cli.js', 'node .\\cli.js', 'node C:dist\\bundle\\cli.js', 'cmd /c .\\pi.cmd']) {
       expect(() => affectedProcesses([row(8, 0, command)], ["c:/pi/dist/bundle/cli.js"], true)).toThrow(/Cannot disambiguate.*PID 8/);
+    }
+    for (const prompt of ["pi", "fix/pi", "C:/PI/dist/bundle/cli.js"]) {
+      expect(affectedProcesses([row(10, 0, `node other.js --prompt "${prompt}"`)], ["c:/pi/dist/bundle/cli.js"], true)).toEqual([]);
+    }
+    const launchers = [
+      ['node --require preflight.cjs --import loader.mjs --conditions development --no-warnings C:/PI/dist/bundle/cli.js --prompt pi', "c:/pi/dist/bundle/cli.js"],
+      ['node -- C:/PI/dist/bundle/cli.js --prompt pi', "c:/pi/dist/bundle/cli.js"],
+      ['cmd /d /s /c ""C:\\Program Files\\npm\\pi.cmd" --prompt pi"', "c:/program files/npm/pi.cmd"],
+      ['cmd /c "C:\\Program Files\\npm\\pi.cmd"', "c:/program files/npm/pi.cmd"],
+      ['powershell -NoProfile -File "C:\\Program Files\\npm\\pi.ps1" --prompt pi', "c:/program files/npm/pi.ps1"],
+      ['pwsh -NoProfile -Command "& \'C:\\Program Files\\npm\\pi.ps1\' --prompt pi"', "c:/program files/npm/pi.ps1"],
+    ];
+    for (const [command, launcher] of launchers) expect(affectedProcesses([row(11, 0, command)], [launcher], true)).toEqual([11]);
+    for (const preload of ["--import", "--require", "-r", "--loader", "--experimental-loader"]) {
+      const options = [`${preload} C:/PI/dist/bundle/cli.js`, preload === "-r" ? "-rC:/PI/dist/bundle/cli.js" : `${preload}=C:/PI/dist/bundle/cli.js`];
+      for (const option of options) {
+        for (const script of ["", " other.js"]) expect(affectedProcesses([row(14, 0, `node ${option}${script}`)], ["c:/pi/dist/bundle/cli.js"], true)).toEqual([14]);
+      }
+      expect(() => affectedProcesses([row(15, 0, `node ${preload} ./dist/bundle/cli.js`)], ["c:/pi/dist/bundle/cli.js"], true)).toThrow(/Cannot disambiguate.*PID 15/);
+    }
+    expect(affectedProcesses([row(16, 0, 'node --import="file:///C:/PI/dist/bundle/cli.js" other.js')], ["c:/pi/dist/bundle/cli.js"], true)).toEqual([16]);
+    expect(affectedProcesses([row(17, 0, 'node other.js --import C:/PI/dist/bundle/cli.js')], ["c:/pi/dist/bundle/cli.js"], true)).toEqual([]);
+    for (const command of ['node -e "console.log(1)" pi', 'node --require setup.cjs other.js --prompt pi',
+      'cmd /c other.cmd --prompt C:/PI/dist/bundle/cli.js', 'powershell -File other.ps1 --prompt pi',
+      'pwsh -Command & other.ps1 --prompt -File C:/PI/dist/bundle/cli.js',
+      'pwsh -Command "& other.ps1 --prompt pi"']) {
+      expect(affectedProcesses([row(12, 0, command)], ["c:/pi/dist/bundle/cli.js"], true)).toEqual([]);
+    }
+    for (const command of ['node --require setup.cjs dist/bundle/cli.js', 'pwsh -Command "& .\\pi.ps1 --prompt words"',
+      'node --unknown-option value dist/bundle/cli.js']) {
+      expect(() => affectedProcesses([row(13, 0, command)], ["c:/pi/dist/bundle/cli.js"], true)).toThrow(/Cannot disambiguate.*PID 13/);
     }
   });
 });

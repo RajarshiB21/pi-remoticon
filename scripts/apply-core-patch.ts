@@ -14,6 +14,7 @@ import {
 export type Command = "status" | "check" | "apply" | "restore";
 const commands: Command[] = ["status", "check", "apply", "restore"];
 const here = dirname(fileURLToPath(import.meta.url));
+/** Identify the exact maintained planner and delivery source in each manifest. */
 export function patchSourceDigest(): string {
   return sha256(["core-patch-plan.ts", "apply-core-patch.ts"].map(name =>
     `${name}\n${readFileSync(join(here, name), "utf8")}`).join("\n"));
@@ -35,9 +36,11 @@ function safePath(target: string, path: string): string {
   return full;
 }
 
+/** Find literal local JS dependencies without evaluating the audited bundle. */
 function localDependencies(path: string, content: string): string[] {
   const refs = new Set<string>();
   const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+  /** Collect imports, requires and worker URLs while traversing the syntax tree. */
   function visit(node: ts.Node): void {
     let specifier: ts.Node | undefined;
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) specifier = node.moduleSpecifier;
@@ -55,6 +58,7 @@ function localDependencies(path: string, content: string): string[] {
   return [...refs];
 }
 
+/** Reject lossy decoding so text edits preserve the original byte fingerprints. */
 function readUtf8(path: string): string {
   const bytes = readFileSync(path);
   const content = bytes.toString("utf8");
@@ -62,8 +66,10 @@ function readUtf8(path: string): string {
   return content;
 }
 
+/** Read the CLI dependency graph; cache parsing only, never file contents. */
 export function readBundle(target: string, dependencies = new Map<string, string[]>()): Map<string, string> {
   const files = new Map<string, string>();
+  /** Read each reachable file once, including graphs containing import cycles. */
   function read(path: string): void {
     if (files.has(path)) return;
     const content = readUtf8(safePath(target, path));
@@ -77,11 +83,14 @@ export function readBundle(target: string, dependencies = new Map<string, string
   return files;
 }
 
+/** Keep original bytes separate from the installed bundle and its sibling stages. */
 const backupPath = (path: string) => `${STATE_DIR}/backups/${path}.original`;
+/** Keep replacements beside their destination for same-filesystem renames. */
 const stagePath = (path: string) => `${path}.pi-remoticon-next.js`;
 const manifestPath = `${STATE_DIR}/manifest.json`;
 const lockPath = `${STATE_DIR}/lock.json`;
 
+/** Validate live package, bundle and recovery metadata before any mutation. */
 function readInspection(target: string, dependencies: Map<string, string[]>): Inspection {
   const pkg: { name?: unknown; version?: unknown } = JSON.parse(readFileSync(safePath(target, "package.json"), "utf8"));
   const files = readBundle(target, dependencies);
@@ -99,6 +108,7 @@ function readInspection(target: string, dependencies: Map<string, string[]>): In
     existsSync(safePath(target, `${manifestPath}.next`)) || [...files.keys()].some(path => existsSync(safePath(target, stagePath(path)))));
 }
 
+/** Flush directory entries where the platform supports opening directories. */
 function syncDirectory(path: string): void {
   // Windows cannot open directories through Node's fs.open. File contents are
   // flushed on both platforms; directory entries are additionally flushed on Unix.
@@ -107,12 +117,14 @@ function syncDirectory(path: string): void {
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 
+/** Flush file contents before returning; exclusive writes refuse existing stages. */
 function durableWrite(path: string, bytes: string, exclusive = false): void {
   const fd = openSync(path, exclusive ? "wx" : "w");
   try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
   syncDirectory(dirname(path));
 }
 
+/** Replace the phase record only after its complete contents have been flushed. */
 function saveManifest(target: string, manifest: Manifest): void {
   const path = safePath(target, manifestPath);
   const next = safePath(target, `${manifestPath}.next`);
@@ -121,6 +133,7 @@ function saveManifest(target: string, manifest: Manifest): void {
   syncDirectory(dirname(path));
 }
 
+/** Read process identities internally without exposing command lines in diagnostics. */
 function processRows(): ProcessRecord[] {
   if (process.platform === "win32") {
     if (!process.env.SystemRoot) throw new Error("SystemRoot is required for process inspection");
@@ -139,6 +152,7 @@ function processRows(): ProcessRecord[] {
   });
 }
 
+/** Refuse mutations when the target is running or process identity is unavailable. */
 function assertClosed(target: string, command: Command): void {
   let rows: ProcessRecord[];
   try {
@@ -234,6 +248,7 @@ export function transact(
   }
 }
 
+/** Remove interrupted stages only after every staged file matches audited bytes. */
 function recoverStaging(target: string, inspection: Inspection): void {
   for (const edit of inspection.edits) {
     const stage = safePath(target, stagePath(edit.path));
@@ -248,6 +263,7 @@ function recoverStaging(target: string, inspection: Inspection): void {
 }
 
 export interface Status { target: string; version: string; state: Inspection["state"]; location: string; phase: string; sourceDigest: string; instruction: string }
+/** Inspect an explicit installation or perform its locked, guarded apply/restore. */
 export function runCorePatch(command: Command, explicitTarget: string): Status {
   if (!commands.includes(command) || !explicitTarget?.trim()) throw new Error("Use status|check|apply|restore --target <explicit-package-root>");
   const target = realpathSync(resolve(explicitTarget));
@@ -298,6 +314,7 @@ export function runCorePatch(command: Command, explicitTarget: string): Status {
   return result();
 }
 
+/** Apply through the same guarded entry point used by the command-line interface. */
 export function applyCorePatch(target: string): Status { return runCorePatch("apply", target); }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

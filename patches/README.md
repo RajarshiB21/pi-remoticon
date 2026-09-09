@@ -1,5 +1,8 @@
 # Core patch delivery
 
+The supported desktop target is Windows with pi in VS Code's integrated terminal.
+The existing Linux CI runner validates the tests; macOS support is outside scope.
+
 This patch removes the vertical padding above and below user messages. It changes
 only the audited bundled UI code in npm pi **0.85.1**. It does not change credentials,
 settings, sessions, model execution, or tools.

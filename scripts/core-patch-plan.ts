@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const PI_VERSION = "0.85.1";
 export const PI_NAME = "@earendil-works/pi-coding-agent";
@@ -20,6 +21,7 @@ export const PATCHES: readonly PatchEntry[] = [{
   replace: 'new Box(this.outputPad,0,content=>theme.bg("userMessageBg",content))',
 }];
 
+/** Fingerprint exact UTF-8 source or raw file bytes. */
 export const sha256 = (bytes: string | Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 export interface Edit { path: string; original: string; patched: string }
@@ -55,6 +57,7 @@ export function planEdits(files: ReadonlyMap<string, string>, entries: readonly 
     .map(([path, patched]) => ({ path, original: files.get(path)!, patched }));
 }
 
+/** Accept only the recorded target and supported literal file fingerprints. */
 function validateManifest(value: unknown, target: string, edits: readonly Edit[]): Manifest {
   if (!value || typeof value !== "object") throw new Error("Invalid patch manifest");
   const m = value as Partial<Manifest>;
@@ -121,23 +124,92 @@ export function inspectPlan(
 }
 
 export interface ProcessRecord { pid: number; parentPid: number; executable: string | null; commandLine: string | null; name: string }
-/** Compare complete command tokens, never arbitrary directory substrings. */
+
+/** Split launcher words without inspecting application arguments as commands. */
+function commandWords(command: string): string[] {
+  return (command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [])
+    .map(word => word.replace(/"([^"]*)"|'([^']*)'/g, (_match, double: string | undefined, single: string | undefined) => double ?? single ?? "")).filter(Boolean);
+}
+
+/** Name the process requiring closure without exposing its prompt. */
+function ambiguousProcess(pid: number): never {
+  throw new Error(`Cannot disambiguate pi-capable process PID ${pid}. Close it, then rerun the patch command. No files changed.`);
+}
+
+/** Recognize only pi launcher basenames when deciding whether ambiguity matters. */
+function isPiEntry(path: string): boolean {
+  return /(?:^|[\\/:])(?:cli\.js|pi(?:\.cmd|\.ps1|\.exe)?)$/i.test(path);
+}
+
+/** Collect executable preloads and the Node script, stopping before script args. */
+function nodeEntries(args: string[], pid: number): string[] {
+  const entries: string[] = [];
+  const preloads = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader"]);
+  const values = new Set(["-C", "--conditions", "--title", "--inspect-port", "--icu-data-dir", "--disable-warning"]);
+  const switches = new Set(["--no-warnings", "--trace-warnings", "--enable-source-maps", "--experimental-strip-types", "--no-experimental-strip-types", "--inspect", "--inspect-brk"]);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--") return args[i + 1] ? [...entries, args[i + 1]] : entries;
+    if (!arg.startsWith("-")) return [...entries, arg];
+    const equals = arg.indexOf("=");
+    const option = equals === -1 ? arg : arg.slice(0, equals);
+    if (preloads.has(option)) {
+      const value = equals === -1 ? args[++i] : arg.slice(equals + 1);
+      if (value) entries.push(value);
+      continue;
+    }
+    if (arg.startsWith("-r") && !arg.startsWith("--") && arg.length > 2) { entries.push(arg.slice(2)); continue; }
+    // Arbitrary evaluated code is outside CLI-path inspection, not a pi launch.
+    if (/^(?:-e|-p|--eval|--print)(?:=|$)/.test(arg)) return entries;
+    if (values.has(arg)) { i++; continue; }
+    if (arg.includes("=") || switches.has(arg)) continue;
+    if (args.slice(i + 1).some(isPiEntry)) ambiguousProcess(pid);
+    return entries;
+  }
+  return entries;
+}
+
+/** Inspect direct Node and standard Windows npm shell-launcher positions only. */
+function processEntries(row: ProcessRecord): string[] {
+  const command = row.commandLine ?? "";
+  const words = commandWords(command);
+  const executable = (row.executable ?? words[0] ?? row.name).replaceAll("\\", "/").split("/").pop()?.replace(/\.exe$/i, "").toLowerCase();
+  if (executable === "node") return nodeEntries(words.slice(1), row.pid);
+  let launched: string[];
+  if (executable === "cmd") {
+    const body = /\s\/[ck]\s+([\s\S]+)/i.exec(command)?.[1];
+    if (!body) return [];
+    launched = commandWords(body.startsWith('""') && body.endsWith('"') ? body.slice(1, -1) : body);
+  } else if (executable === "powershell" || executable === "pwsh") {
+    const entry = words.findIndex(word => /^-(?:file|f|command|c)$/i.test(word));
+    if (entry !== -1 && /^-(?:file|f)$/i.test(words[entry])) return words[entry + 1] ? [words[entry + 1]] : [];
+    const body = /\s-(?:command|c)\s+([\s\S]+)/i.exec(command)?.[1];
+    if (!body) return [];
+    launched = commandWords(body.startsWith('"') && body.endsWith('"') ? body.slice(1, -1) : body);
+    if (launched[0] === "&" || launched[0] === ".") launched.shift();
+  } else return [];
+  const launcher = launched[0];
+  return launcher && /(?:^|[\\/])node(?:\.exe)?$/i.test(launcher) ? nodeEntries(launched.slice(1), row.pid) : launcher ? [launcher] : [];
+}
+
+/** Match executable/script paths and their process relatives, excluding prompts. */
 export function affectedProcesses(rows: readonly ProcessRecord[], paths: readonly string[], windows: boolean): number[] {
+  /** Normalize case, separators, extended prefixes and dot segments for matching. */
   const normalize = (value: string) => {
+    if (value.startsWith("file:")) value = fileURLToPath(value, { windows });
     const plain = value.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "");
     const p = (windows ? win32 : posix).normalize(plain).replaceAll("\\", "/").replace(/\/+$/, "");
     return windows ? p.toLowerCase() : p;
   };
   const targets = new Set(paths.map(normalize));
   const direct = rows.filter(row => {
-    const tokens = row.commandLine?.match(/"[^"]*"|'[^']*'|[^\s"]+/g) ?? [];
-    const paths = [row.executable ?? "", ...tokens.map(token => token.replace(/^["']|["']$/g, ""))].map(normalize);
+    const paths = [row.executable ?? "", ...processEntries(row)].map(normalize);
     if (paths.some(path => targets.has(path))) return true;
     // CIM does not provide the working directory. A relative pi entry cannot
     // be assigned to another installation safely, so require it to be closed.
-    if (paths.some(path => /(?:^|[/:])(?:cli\.js|pi(?:\.cmd|\.ps1|\.exe)?)$/i.test(path) &&
+    if (paths.some(path => isPiEntry(path) &&
       !(windows ? /^(?:[a-z]:\/|\/\/[^/]+\/[^/]+)/i.test(path) : posix.isAbsolute(path)))) {
-      throw new Error(`Cannot disambiguate pi-capable process PID ${row.pid}. Close it, then rerun the patch command. No files changed.`);
+      ambiguousProcess(row.pid);
     }
     return false;
   });

@@ -6,6 +6,7 @@ import { transact, runCorePatch } from "../scripts/apply-core-patch.js";
 import { STATE_DIR, sha256, type Edit } from "../scripts/core-patch-plan.js";
 import { makePiCopy } from "./helpers/patch-harness.js";
 
+/** Exercise multi-file replacement on tiny owned files, then remove the fixture. */
 function fixture(run: (target: string, edits: Edit[]) => void): void {
   const target = mkdtempSync(join(tmpdir(), "remoticon-transaction-"));
   const edits = ["a.js", "b.js", "c.js"].map((path, index) => ({ path, original: `const value = ${index};\n`, patched: `const value = ${index + 1};\n` }));
