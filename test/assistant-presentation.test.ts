@@ -24,6 +24,8 @@ it("retains native assistant identity, cached thinking, ordered deltas, mouse co
   expect(native).toBeInstanceOf(AssistantMessageComponent);
   expect(plain()).toContain("Reasoning");
   expect(plain()).toContain("First thought.");
+  expect(native.render(90).join("\n")).toContain("38;2;185;165;232mReasoning");
+  expect(native.render(90).join("\n")).not.toContain("\x1b[3m");
   const renders = markdownRenders;
   message.content.push({ type: "text", text: "Answer **one** " + "wide prose 界 ".repeat(12) });
   present.call(owner, message, true);

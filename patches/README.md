@@ -7,6 +7,12 @@ This patch adds streaming answer markers, thinking labels and collapsible groups
 of native tool rows. It preserves the thin user bar and supplies the read-only
 auto-compaction state used by the composer/footer extension. It reports retry
 cancellation on the existing settlement event so the footer says Stopped.
+Expanded reasoning uses a violet heading and upright muted Markdown. Indented
+tool summaries describe actual operations and retain native details behind Ctrl+O
+and summary clicks. Ctrl+T retains the native collapsed reasoning preference;
+these two toggles no longer append redundant transcript announcements.
+The composer prompt is display padding, and the two-row footer shows compact
+context, token totals, cost and the final directory segment with its branch.
 It targets audited npm pi **0.85.1**. Model execution, retry behavior, credentials,
 settings and stored sessions remain native.
 

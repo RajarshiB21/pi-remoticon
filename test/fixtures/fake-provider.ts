@@ -9,6 +9,7 @@
 // exercise the footer's working state, so streamSimple returns a canned reply
 // carrying a fixed usage object — no network.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage, type Context } from "@earendil-works/pi-ai";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
@@ -34,6 +35,20 @@ export function wantsToolCall(context?: Context): boolean {
 
 /** Register finite text/tool streams with abort handling and no network adapter. */
 export default function (pi: ExtensionAPI) {
+  // Keep native shell rendering but make the fixture independent of installed shells.
+  pi.registerTool(createBashToolDefinition(process.cwd(), { operations: {
+    async exec(command, _cwd, options) {
+      if (!["echo restoration-fixture", "fixture-fail", "fixture-long"].includes(command)) throw new Error("Unsupported fixture command");
+      options.signal?.throwIfAborted();
+      if (command === "fixture-fail") throw new Error("Fixture command failed; continuing safely");
+      if (command === "fixture-long") for (let i = 0; i < 120; i++) {
+        options.onData(Buffer.from(`Fixture output ${i}: ${"read-only output ".repeat(20)}\n`));
+        await delay(100, undefined, { signal: options.signal });
+      }
+      options.onData(Buffer.from("restoration-fixture\n"));
+      return { exitCode: 0 };
+    },
+  } }));
   pi.registerProvider("fake", {
     name: "Fake (test)",
     baseUrl: "http://127.0.0.1:1", // unreachable on purpose; never hit at frame-zero
@@ -68,19 +83,45 @@ export default function (pi: ExtensionAPI) {
           stream.push({ type: "start", partial: out });
           const latestUser = context?.messages.filter(message => message.role === "user").at(-1);
           const polish = JSON.stringify(latestUser?.content ?? "").includes("POLISH");
+          const restore = JSON.stringify(latestUser?.content ?? "").includes("RESTORE");
+          const boundary = JSON.stringify(latestUser?.content ?? "").includes("BOUNDARY");
+          const failure = JSON.stringify(latestUser?.content ?? "").includes("FAILURE");
+          const long = JSON.stringify(latestUser?.content ?? "").includes("LONG");
           const groupRun = JSON.stringify(latestUser?.content ?? "").includes("GROUPTOOLS");
           const latestIndex = context.messages.lastIndexOf(latestUser!);
           const toolCount = context.messages.slice(latestIndex + 1).filter(message => message.role === "toolResult").length;
-          if (polish && !wantsToolCall(context)) {
+          if ((polish || restore && toolCount === 0 || boundary && toolCount < 2) && !wantsToolCall(context)) {
             const thinking = { type: "thinking" as const, thinking: "" };
             out.content.push(thinking);
             stream.push({ type: "thinking_start", contentIndex: 0, partial: out });
-            for (const delta of ["Inspecting the fixture. ", "The stream remains incremental."]) {
+            for (const delta of restore ? ["I need to separate animation timing from the work performed during each redraw. ", "I will check the footer and native transcript rendering path."] : ["Inspecting the fixture. ", "The stream remains incremental."]) {
               thinking.thinking += delta;
               stream.push({ type: "thinking_delta", contentIndex: 0, delta, partial: out });
               await delay(200, undefined, { signal: options?.signal });
             }
             stream.push({ type: "thinking_end", contentIndex: 0, content: thinking.thinking, partial: out });
+          }
+          if (restore && toolCount === 0 || boundary && toolCount < 2 || failure && toolCount < 2) {
+            if (restore) {
+              const commentary = { type: "text" as const, text: "I'll inspect the footer and its rendering path." };
+              out.content.push(commentary);
+              stream.push({ type: "text_start", contentIndex: 1, partial: out });
+              stream.push({ type: "text_delta", contentIndex: 1, delta: commentary.text, partial: out });
+              stream.push({ type: "text_end", contentIndex: 1, content: commentary.text, partial: out });
+            }
+            const calls = restore ? [["read", { path: "package.json" }], ["read", { path: "fixture.txt" }], ["bash", { command: long ? "fixture-long" : "echo restoration-fixture" }]] as const : [["bash", { command: failure && toolCount === 0 ? "fixture-fail" : long ? "fixture-long" : "echo restoration-fixture" }]] as const;
+            for (const [name, args] of calls) {
+              const toolCall = { type: "toolCall" as const, id: randomUUID(), name, arguments: args };
+              const contentIndex = out.content.length;
+              out.content.push(toolCall);
+              stream.push({ type: "toolcall_start", contentIndex, partial: out });
+              stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(args), partial: out });
+              stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: out });
+            }
+            out.stopReason = "toolUse";
+            stream.push({ type: "done", reason: out.stopReason, message: out });
+            stream.end();
+            return;
           }
           if (wantsToolCall(context) || groupRun && toolCount < 2) {
             // One `read` call — read-only, OS-neutral, no shell. Renders a tool row
@@ -103,11 +144,11 @@ export default function (pi: ExtensionAPI) {
           stream.push({ type: "text_start", contentIndex: textIndex, partial: out });
           const block = out.content[textIndex];
           if (block.type === "text") {
-            const chunks = polish ? ["A full-width answer arrives ", "while the draft remains editable. ", "Native Markdown keeps **bold text**, `code`, and wide characters 界 intact. ", "This paragraph continues across the available terminal width without a fixed reading column."] : ["ok"];
+            const chunks = restore ? ["The footer needs a real animation lifecycle. ", "Keep its timing separate from usage calculations. Update those numbers when data changes, then let each animation frame change only the visual state.", "\n\nThe result should stay responsive while you type."] : polish ? ["A full-width answer arrives ", "while the draft remains editable. ", "Native Markdown keeps **bold text**, `code`, and wide characters 界 intact. ", "This paragraph continues across the available terminal width without a fixed reading column."] : ["ok"];
             for (const delta of chunks) {
               block.text += delta;
               stream.push({ type: "text_delta", contentIndex: textIndex, delta, partial: out });
-              if (polish) await delay(250, undefined, { signal: options?.signal });
+              if (polish || restore) await delay(250, undefined, { signal: options?.signal });
             }
             stream.push({ type: "text_end", contentIndex: textIndex, content: block.text, partial: out });
           }

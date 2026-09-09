@@ -118,7 +118,7 @@ async function assertPatchedToolFlow(chunk: string): Promise<void> {
   });
   const start = (owner: ReturnType<typeof setup>, id: string) => owner.handleEvent({ type: "tool_execution_start", toolCallId: id, toolName: "read", args: {} });
   const plain = (component: Container) => component.render(90).map(stripVTControlCharacters).join("\n");
-  for (const [state, expected] of [["pending", "1 read pending"], ["done", "1 read"], ["failed", "1 failed"], ["stopped", "1 stopped"]] as const) {
+  for (const [state, expected] of [["pending", "1 read pending"], ["done", "1 read completed"], ["failed", "1 read failed"], ["stopped", "1 read interrupted"]] as const) {
     const owner = setup();
     await start(owner, state);
     const row = owner.pendingTools.get(state);
@@ -150,7 +150,7 @@ async function assertPatchedToolFlow(chunk: string): Promise<void> {
   await owner.handleEvent({ type: "tool_execution_end", toolCallId: "second", isError: true, result: { content: [{ type: "text", text: "failed then continued" }] } });
   await start(owner, "retry");
   expect(split.entries.map((entry: { row: unknown }) => entry.row)).toEqual([originalSecond, owner.pendingTools.get("retry")]);
-  expect(plain(split)).toContain("1 failed");
+  expect(plain(split)).toContain("1 read failed");
   expect(plain(split)).toContain("1 read pending");
   expect(owner.pendingTools.get("first")).toBe(originalFirst);
 }

@@ -58,6 +58,7 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
   try {
     cwd ??= home;
     writeFileSync(join(home, "package.json"), '{"name":"offline-tool-fixture","private":true}\n');
+    writeFileSync(join(home, "fixture.txt"), "Read-only restoration fixture.\n");
     const agentDir = join(home, ".pi", "agent");
     const bin = join(agentDir, "bin");
     mkdirSync(agentDir, { recursive: true });

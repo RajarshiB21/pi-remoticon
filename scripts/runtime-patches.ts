@@ -59,7 +59,7 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
     return { name: `tool-groups-${method}`, find, replace };
   };
   const insertion = "component.setExpanded(this.toolOutputExpanded),this.chatContainer.addChild(component)";
-  const grouped = "component.setExpanded(this.toolOutputExpanded),remoticonTools.add(this.chatContainer,component)";
+  const grouped = "component.setExpanded(this.toolOutputExpanded),remoticonTools.add(this.chatContainer,component,this.outputPad)";
   const failure = 'component.updateResult({content:[{type:"text",text:errorMessage2}],isError:!0})';
   return [
     { name: "assistant-content-runs", find: update, replace: `updateContent(message,isStreaming=this.isStreaming){this.remoticonPresenter??=(()=>{${source};return createAssistantPresenter})()({Container,Markdown,Text,MouseRegion,Spacer,truncateToWidth,getTheme:()=>theme,createMarkdownTransform});this.remoticonPresenter.call(this,message,isStreaming)}` },
@@ -80,7 +80,15 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
     scoped("showSettingsSelector", value => {
       const predicate = "child instanceof ToolExecutionComponent&&";
       if (value.split(predicate).length !== 3) throw new Error("Expected two image-setting traversals");
-      return value.replaceAll(predicate, "(child instanceof ToolExecutionComponent||child instanceof remoticonTools.Group)&&");
+      const padding = "child instanceof AssistantMessageComponent||";
+      if (value.split(padding).length !== 2) throw new Error("Expected one output-padding traversal");
+      return value.replaceAll(predicate, "(child instanceof ToolExecutionComponent||child instanceof remoticonTools.Group)&&")
+        .replace(padding, "child instanceof remoticonTools.Group||" + padding);
     }),
+    ...["setToolsExpanded", "toggleThinkingBlockVisibility"].map(method => scoped(method, value => {
+      const notice = method === "setToolsExpanded" ? 'this.showStatus(`Tool output: ${expanded?"expanded":"collapsed"}`)' : 'this.showStatus(`Thinking blocks: ${this.hideThinkingBlock?"hidden":"visible"}`)';
+      if (value.split(notice).length !== 2) throw new Error(`Expected one toggle announcement in ${method}`);
+      return value.replace(notice, "this.ui.requestRender()");
+    })),
   ];
 }

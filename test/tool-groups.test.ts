@@ -35,12 +35,13 @@ it("groups original rows across empty turns, splits owned rows at late content a
   const group = chat.children.find(child => child instanceof groups.Group)! as InstanceType<typeof groups.Group>;
   expect(group.entries.map(entry => entry.row)).toEqual([a.row, b.row, c.row]);
   const plain = () => group.render(90).map(stripVTControlCharacters).join("\n");
-  expect(plain()).toContain("2 read pending");
+  expect(plain()).toContain("2 reads pending");
+  expect(group.render(90).join("\n")).toContain("\x1b[38;2;185;165;232m");
   expect(renders).toBe(0);
   b.native.updateResult({ content: [{ type: "text", text: "broken input" }], isError: true });
   a.native.updateResult({ content: [{ type: "text", text: "ok" }], isError: false });
   expect(updates).toBeGreaterThan(0);
-  expect(plain()).toContain("1 failed");
+  expect(plain()).toContain("1 read failed");
   expect(plain()).toContain("broken input");
   expect(renders).toBe(0);
   second.remoticonVisible = true; second.remoticonVisibilityChanged?.();
@@ -49,7 +50,7 @@ it("groups original rows across empty turns, splits owned rows at late content a
   expect(split.entries.map(entry => entry.row)).toEqual([b.row, c.row]);
   expect(b.native).toBeInstanceOf(ToolExecutionComponent);
   groups.stop(chat);
-  expect(split.render(90).map(stripVTControlCharacters).join("\n")).toContain("1 stopped");
+  expect(split.render(90).map(stripVTControlCharacters).join("\n")).toContain("1 write interrupted");
   const event = { type: "click", button: "left", x: 2, y: 1, width: 90, height: 20, screenX: 2, screenY: 1, shift: false, alt: false, ctrl: false } satisfies TuiMouseEvent;
   expect(split.handleMouse(event)?.handled).toBe(true);
   expect(split.render(90).map(stripVTControlCharacters).join("\n")).toContain("native result");
@@ -71,6 +72,32 @@ it("groups original rows across empty turns, splits owned rows at late content a
   expect(renders).toBe(before);
   for (const name of ["constructor", "toString", "__proto__"]) {
     const generic = new Container(); groups.add(generic, makeRow(name).row);
-    expect(generic.render(90).map(stripVTControlCharacters).join("\n")).toContain(`1 ${name} pending`);
+    expect(generic.render(90).map(stripVTControlCharacters).join("\n")).toContain(`1 ${name} call pending`);
   }
+  chat.clear();
+  const commentary = Object.assign(assistant(), { remoticonVisible: true, remoticonLastKind: "text" as "text" | "thinking" });
+  chat.addChild(commentary);
+  const rows = [makeRow("read"), makeRow("read"), makeRow("read"), makeRow("bash")];
+  for (const [index, value] of rows.entries()) {
+    Object.assign(value.row, { args: index < 3 ? { path: index === 2 ? "second.txt" : "first.txt" } : { command: "echo safe" } });
+    groups.add(chat, value.row, 2);
+  }
+  const summary = chat.children.at(-1) as InstanceType<typeof groups.Group>;
+  expect(summary.render(120).map(stripVTControlCharacters)[0]).toBe("    Reading 2 files · running 1 command");
+  for (const { native } of rows) native.updateResult({ content: [{ type: "text", text: "ok" }], isError: false });
+  expect(summary.render(120).map(stripVTControlCharacters)[0]).toBe("    Read 2 files · ran 1 command");
+  expect(summary.render(120).join("\n")).not.toMatch(/[▸▾]/);
+  commentary.remoticonLastKind = "thinking"; commentary.remoticonVisibilityChanged?.();
+  expect(summary.render(120)[0]).toBe("");
+  commentary.remoticonLastKind = "text"; commentary.remoticonVisibilityChanged?.();
+  expect(summary.render(120)[0]).not.toBe("");
+  summary.setOutputPad(0);
+  expect(summary.render(120).map(stripVTControlCharacters)[0]).toMatch(/^ {2}Read/);
+  const failed = makeRow("read"); Object.assign(failed.row, { args: { path: "first.txt" } }); groups.add(chat, failed.row, 0);
+  failed.native.updateResult({ content: [{ type: "text", text: "denied" }], isError: true });
+  const failure = summary.render(120).map(stripVTControlCharacters);
+  expect(failure[0]).toContain("Read 2 files · ran 1 command · 1 read failed");
+  expect(failure[1]).toBe("    ! read: denied");
+  expect(summary.handleMouse({ ...event, y: 0 })?.handled).toBe(true);
+  expect(summary.expanded).toBe(true);
 });

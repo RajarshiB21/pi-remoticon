@@ -16,6 +16,7 @@ interface Owner {
   updateContent(message: AssistantMessage, streaming?: boolean): void;
   remoticonInvalidate?: () => void;
   remoticonVisible?: boolean;
+  remoticonLastKind?: "text" | "thinking" | "notice";
   remoticonVisibilityChanged?: () => void;
 }
 
@@ -38,8 +39,10 @@ export function createAssistantPresenter(d: {
     const next: Component[] = [];
     const used = new Set<string>();
     let thinkingRun = 0;
+    let lastKind: Owner["remoticonLastKind"];
     const theme = d.getTheme();
     const add = (key: string, text: string, kind: "text" | "thinking", hidden = false, runIndex = 0) => {
+      lastKind = kind;
       used.add(key);
       const pad = this.outputPad;
       const signature = `${kind}/${hidden}/${pad}/${streaming}/${this.hiddenThinkingLabel}/${runIndex}`;
@@ -50,11 +53,11 @@ export function createAssistantPresenter(d: {
         if (hidden) inner = new d.Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), 0, 0);
         else {
           markdown = new d.Markdown(text, 0, 0, this.markdownTheme,
-            kind === "thinking" ? { color: value => d.getTheme().fg("thinkingText", value), italic: true } : undefined,
+            kind === "thinking" ? { color: value => d.getTheme().fg("thinkingText", value) } : undefined,
             { transform: d.createMarkdownTransform(kind === "text" ? "assistant" : "assistant-thinking", streaming, this.markdownTransformers) });
           if (kind === "thinking") {
             const thinking = new d.Container();
-            thinking.addChild(new d.Text(theme.fg("thinkingText", "Reasoning"), 0, 0));
+            thinking.addChild(new d.Text("\x1b[38;2;185;165;232mReasoning\x1b[39m", 0, 0));
             thinking.addChild(markdown);
             inner = thinking;
           } else inner = markdown;
@@ -115,7 +118,7 @@ export function createAssistantPresenter(d: {
     if (message.stopReason === "length") notice = "Response was truncated before completion.";
     else if (!this.hasToolCalls && message.stopReason === "aborted") notice = message.errorMessage && message.errorMessage !== "Request was aborted" ? message.errorMessage : "Operation aborted";
     else if (!this.hasToolCalls && message.stopReason === "error") notice = `Error: ${message.errorMessage || "Unknown error"}`;
-    if (notice) next.push(new d.Spacer(1), new d.Text(theme.fg("error", notice), this.outputPad, 0));
+    if (notice) { next.push(new d.Spacer(1), new d.Text(theme.fg("error", notice), this.outputPad, 0)); lastKind = "notice"; }
     const children = this.contentContainer.children;
     let start = 0;
     while (start < children.length && start < next.length && children[start] === next[start]) start++;
@@ -124,8 +127,9 @@ export function createAssistantPresenter(d: {
     while (oldEnd > start && newEnd > start && children[oldEnd - 1] === next[newEnd - 1]) { oldEnd--; newEnd--; }
     if (oldEnd !== start || newEnd !== start) children.splice(start, oldEnd - start, ...next.slice(start, newEnd));
     const visible = next.length > 0;
-    if (this.remoticonVisible !== visible) {
+    if (this.remoticonVisible !== visible || this.remoticonLastKind !== lastKind) {
       this.remoticonVisible = visible;
+      this.remoticonLastKind = lastKind;
       this.remoticonVisibilityChanged?.();
     }
   };

@@ -10,7 +10,7 @@ const model = { api: "openai-completions", provider: "fake", id: "fake-model" } 
 describe("finite fake provider", () => {
   it("starts each new user scenario, retains unique calls, streams deltas and terminates on abort", async () => {
     let config: ProviderConfig | undefined;
-    registerFake({ registerProvider: (_name: string, value: ProviderConfig) => { config = value; } } as unknown as ExtensionAPI);
+    registerFake({ registerTool() {}, registerProvider: (_name: string, value: ProviderConfig) => { config = value; } } as unknown as ExtensionAPI);
     for (const [messages, expected] of [
       [[user], true], [[user, result], false], [[user, result, user], true],
     ] as const) expect(wantsToolCall({ messages: [...messages] } as Context)).toBe(expected);
