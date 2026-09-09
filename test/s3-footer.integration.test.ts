@@ -102,10 +102,15 @@ describe("fullscreen composer/footer lifecycle", () => {
       await term.waitForStable(100, 3000);
       expect(term.viewport.getText()).toContain("Skill(sample-skill)");
       expect(term.viewport.getText()).not.toContain("SKILL_SOURCE_MUST_STAY_HIDDEN");
+      expect(term.viewport.getText().lastIndexOf("Skill(sample-skill)"))
+        .toBeGreaterThan(term.viewport.getText().lastIndexOf("user argument retained"));
       term.type("/reload"); term.press("Enter");
       await term.waitForStable(200, 5000);
       expect(term.viewport.getText()).toContain("Skill(sample-skill)");
       expect(term.viewport.getText()).not.toContain("SKILL_SOURCE_MUST_STAY_HIDDEN");
+      expect(term.viewport.getText()).toContain("user argument retained");
+      expect(term.viewport.getText().lastIndexOf("Skill(sample-skill)"))
+        .toBeGreaterThan(term.viewport.getText().lastIndexOf("user argument retained"));
     } finally { await term.close(); }
   });
 });
