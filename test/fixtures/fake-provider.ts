@@ -66,6 +66,19 @@ export default function (pi: ExtensionAPI) {
         try {
           options?.signal?.throwIfAborted();
           stream.push({ type: "start", partial: out });
+          const latestUser = context?.messages.filter(message => message.role === "user").at(-1);
+          const polish = JSON.stringify(latestUser?.content ?? "").includes("POLISH");
+          if (polish && !wantsToolCall(context)) {
+            const thinking = { type: "thinking" as const, thinking: "" };
+            out.content.push(thinking);
+            stream.push({ type: "thinking_start", contentIndex: 0, partial: out });
+            for (const delta of ["Inspecting the fixture. ", "The stream remains incremental."]) {
+              thinking.thinking += delta;
+              stream.push({ type: "thinking_delta", contentIndex: 0, delta, partial: out });
+              await delay(200, undefined, { signal: options?.signal });
+            }
+            stream.push({ type: "thinking_end", contentIndex: 0, content: thinking.thinking, partial: out });
+          }
           if (wantsToolCall(context)) {
             // One `read` call — read-only, OS-neutral, no shell. Renders a tool row
             // (the umbrella's ToolExecutionComponent) so the box-death theme change
@@ -83,12 +96,17 @@ export default function (pi: ExtensionAPI) {
             return;
           }
           out.content.push({ type: "text", text: "" });
-          stream.push({ type: "text_start", contentIndex: 0, partial: out });
-          const block = out.content[0];
+          const textIndex = out.content.length - 1;
+          stream.push({ type: "text_start", contentIndex: textIndex, partial: out });
+          const block = out.content[textIndex];
           if (block.type === "text") {
-            block.text = "ok";
-            stream.push({ type: "text_delta", contentIndex: 0, delta: "ok", partial: out });
-            stream.push({ type: "text_end", contentIndex: 0, content: block.text, partial: out });
+            const chunks = polish ? ["A full-width answer arrives ", "while the draft remains editable. ", "Native Markdown keeps **bold text**, `code`, and wide characters 界 intact. ", "This paragraph continues across the available terminal width without a fixed reading column."] : ["ok"];
+            for (const delta of chunks) {
+              block.text += delta;
+              stream.push({ type: "text_delta", contentIndex: textIndex, delta, partial: out });
+              if (polish) await delay(250, undefined, { signal: options?.signal });
+            }
+            stream.push({ type: "text_end", contentIndex: textIndex, content: block.text, partial: out });
           }
           await delay(300, undefined, { signal: options?.signal });
           out.stopReason = "stop";

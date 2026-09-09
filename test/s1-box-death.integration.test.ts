@@ -10,12 +10,12 @@
 // literal could do that (a #1b1b1b box only blends on a #1b1b1b terminal).
 //
 // Three assertions, together non-trivial:
-//   1. the user-message bar is #3a3a46 -> the theme actually loaded (so the
+//   1. the user-message bar is #24262c -> the theme actually loaded (so the
 //      rest isn't vacuous);
 //   2. the settled frame shows the tool row ("read package.json" — our own
 //      deterministic call text, not model output) -> a real tool call rendered
 //      through ToolExecutionComponent;
-//   3. the ONLY painted background in the whole frame is the user bar's #3a3a46
+//   3. the ONLY painted background in the whole frame is the user bar's #24262c
 //      -> the tool box (and anything else) paints nothing: no ground block, no
 //      pi default green/red/purple box, no other fill.
 import { describe, it, expect, beforeAll } from "vitest";
@@ -25,7 +25,7 @@ import { bootPi, repoRoot } from "./helpers/boot-pi.js";
 const THEME = join(repoRoot, "themes", "remoticon.json");
 const themeArgs = ["--theme", THEME, "--use-theme", "remoticon"];
 
-const USERBAR = { r: 0x3a, g: 0x3a, b: 0x46 }; // #3a3a46 — the user message bar
+const USERBAR = { r: 0x24, g: 0x26, b: 0x2c }; // #24262c — the user message bar
 const eq = (c: { r: number; g: number; b: number } | null, x: { r: number; g: number; b: number }) =>
   !!c && c.r === x.r && c.g === x.g && c.b === x.b;
 

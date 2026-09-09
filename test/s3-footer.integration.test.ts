@@ -1,44 +1,44 @@
-// S3 — Integration lane. Boot pi at fullscreen with the footer extension loaded
-// under the fake model, and prove our custom footer replaced pi's default:
-// the leftmost state dot (●) is present and `cwd (branch)` is pinned right.
-// Shape/smoke only — the exact idle/working strings are unit-tested
-// (test/footer-format.test.ts), not asserted against model text here.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { join } from "node:path";
-import { bootPi, repoRoot } from "./helpers/boot-pi.js";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { bootPi } from "./helpers/boot-pi.js";
+import { makePiCopy, type PiCopy } from "./helpers/patch-harness.js";
+import { applyCorePatch } from "../scripts/apply-core-patch.js";
 
-let fixtureCwd: string;
-
-const FOOTER = join(repoRoot, "extensions", "footer.ts");
-const footerArgs = ["-e", FOOTER];
-
-describe("S3: custom footer (idle layout)", () => {
-  beforeAll(async () => {
-    fixtureCwd = mkdtempSync(join(tmpdir(), "pi-cwd-"));
-    execFileSync("git", ["init", "-b", "fixture", fixtureCwd], { stdio: "pipe" });
-    const warm = await bootPi(60000, 30000, footerArgs, {}, fixtureCwd);
-    await warm.close();
-  });
-  afterAll(() => { if (fixtureCwd) rmSync(fixtureCwd, { recursive: true, force: true }); });
-
-  it("renders our footer: the state dot and the right-pinned cwd", async () => {
-    const term = await bootPi(15000, 15000, footerArgs, {}, fixtureCwd);
+let copy: PiCopy;
+describe("fullscreen composer/footer lifecycle", () => {
+  beforeAll(() => { copy = makePiCopy(); applyCorePatch(copy.pkgDir); });
+  afterAll(() => copy?.cleanup());
+  it("streams, edits a draft, changes effort, resizes and settles without losing native controls", async () => {
+    const term = await bootPi(30000, 15000, [], { package: true }, undefined, copy.cli);
     try {
-      const frame = term.viewport.getText();
-      // The ● dot is unique to our footer (pi's default footer has none) — its
-      // presence proves setFooter replaced the built-in footer.
-      expect(frame).toContain("●");
-      // The footer row must END with the live `cwd (branch)` — proving the value
-      // wired through extensions/footer.ts is pinned hard right (not just present
-      // somewhere). The isolated fixture supplies the same branch locally and in CI.
-      const footerRow = frame.split("\n").reverse().find((r) => r.includes(fixtureCwd)) ?? "";
-      expect(footerRow, "no footer row contained the fixture cwd").toContain(`${fixtureCwd} (fixture)`);
-      expect(footerRow.trimEnd().endsWith(")"), "cwd (branch) is not pinned to the right edge").toBe(true);
-    } finally {
-      await term.close();
-    }
+      expect(term.viewport.getText()).toContain("auto on");
+      const initialEffort = term.viewport.getText().split("\n").find(row => row.includes(" effort "));
+      term.press("Shift+Tab");
+      await term.waitForStable(100, 3000);
+      expect(term.viewport.getText().split("\n").find(row => row.includes(" effort "))).not.toBe(initialEffort);
+      term.type("POLISH"); term.press("Enter");
+      await term.waitFor("Inspecting the fixture", 5000);
+      term.type("draft remains");
+      await term.waitFor("A full-width answer", 5000);
+      expect(term.viewport.getText()).toContain("draft remains");
+      term.resize(60, 30);
+      await term.waitFor("Finished", 5000);
+      expect(term.viewport.getText()).toContain("draft remains");
+      expect(term.viewport.getText()).toContain("Ready");
+      expect(term.viewport.getText()).toContain("● fake-model");
+      const settled = term.viewport.getText();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(term.viewport.getText()).toBe(settled);
+      term.press("Ctrl+U");
+      term.type("POLISH"); term.press("Enter");
+      await term.waitFor("Reasoning", 5000);
+      term.press("Escape");
+      await term.waitFor("Stopped", 5000);
+      expect(term.viewport.getText()).not.toContain("Finished ·");
+      term.resize(100, 30);
+      term.type("/reload"); term.press("Enter");
+      await term.waitFor("effort", 5000);
+      await term.waitForStable(200, 5000);
+      expect(term.viewport.getText()).not.toContain("Stopped ·");
+    } finally { await term.close(); }
   });
 });

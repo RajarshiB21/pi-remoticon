@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { readBundle } from "../scripts/apply-core-patch.js";
 import {
   inspectPlan, planEdits, sha256, PATCHES, PI_NAME, PI_VERSION, CLI_PATH,
-  ORIGINAL_HASH, THIN_BAR_HASH, affectedProcesses, type Manifest, type ProcessRecord,
+  ORIGINAL_HASH, THIN_BAR_HASH, UI_HASH, affectedProcesses, type Manifest, type ProcessRecord,
 } from "../scripts/core-patch-plan.js";
 import { PRISTINE_SOURCE } from "./helpers/patch-harness.js";
 
@@ -21,7 +21,7 @@ beforeAll(() => {
   for (const edit of edits) patched.set(edit.path, edit.patched);
   backups = new Map(edits.map(edit => [edit.path, edit.original]));
   manifest = { format: 1, target, version: PI_VERSION, sourceDigest: digest, phase: "applied",
-    files: edits.map(edit => ({ path: edit.path, originalHash: ORIGINAL_HASH, patchedHash: THIN_BAR_HASH })) };
+    files: edits.map(edit => ({ path: edit.path, originalHash: ORIGINAL_HASH, patchedHash: UI_HASH })) };
 });
 
 describe("S0 pure patch plan", () => {
@@ -29,7 +29,15 @@ describe("S0 pure patch plan", () => {
     const inspect = (files: Map<string, string>, value?: unknown, interrupted = false) =>
       inspectPlan(target, PI_NAME, PI_VERSION, files, digest, value, backups, interrupted);
     expect(inspect(pristine).state).toBe("pristine");
-    expect(inspect(patched).state).toBe("legacy thin-bar-only");
+    const legacy = new Map(pristine);
+    const legacyEdit = planEdits(pristine, [PATCHES[0]])[0];
+    legacy.set(legacyEdit.path, legacyEdit.patched);
+    expect(sha256(legacyEdit.patched)).toBe(THIN_BAR_HASH);
+    expect(inspect(legacy).state).toBe("legacy thin-bar-only");
+    const legacyManifest = { ...manifest, files: [{ ...manifest.files[0], patchedHash: THIN_BAR_HASH }] };
+    expect(inspect(legacy, legacyManifest).state).toBe("older managed");
+    expect(inspect(legacy, legacyManifest).edits[0].previous).toBe(legacyEdit.patched);
+    expect(inspect(legacy, { ...manifest, files: [{ ...manifest.files[0], previousHash: THIN_BAR_HASH }] }).state).toBe("interrupted managed");
     expect(inspect(patched, manifest).state).toBe("current managed");
     expect(inspect(patched, { ...manifest, sourceDigest: sha256("earlier source, same audited thin-bar transform") }).state).toBe("older managed");
     for (const phase of ["prepared", "applying", "restoring", "rollback-failed"]) {
@@ -73,8 +81,22 @@ describe("S0 pure patch plan", () => {
     expect(() => planEdits(new Map([["a.js", "old()"], ["b.js", "old()"]]), [entry])).toThrow(/ambiguous/);
     expect(planEdits(new Map([["a.js", "old();second()"]]), [entry, { name: "second", find: "second()", replace: "changed()" }]))
       .toEqual([{ path: "a.js", original: "old();second()", patched: "newer();changed()" }]);
-    expect(PATCHES).toHaveLength(1);
+    expect(PATCHES).toHaveLength(5);
     expect(PATCHES[0].find.replace(",1,", ",0,")).toBe(PATCHES[0].replace);
+    const nativeProvider = { value: "main", getGitBranch() { return this.value; }, getExtensionStatuses() { return this.value; },
+      getAvailableProviderCount() { return this.value; }, onBranchChange(callback: () => void) { callback(); return this.value; } };
+    const owner = { footerDataProvider: nativeProvider, session: { autoCompactionEnabled: false } };
+    const bridge = new Function("factory", "theme", `${PATCHES[1].replace};return this.customFooter;`)
+      .call(owner, (_ui: unknown, _theme: unknown, data: unknown) => data, {});
+    expect(bridge.getGitBranch()).toBe("main");
+    expect(bridge.getExtensionStatuses()).toBe("main");
+    expect(bridge.getAvailableProviderCount()).toBe("main");
+    let notified = false;
+    expect(bridge.onBranchChange(() => { notified = true; })).toBe("main");
+    expect(notified).toBe(true);
+    expect(bridge.remoticon.getState()).toEqual({ autoCompactionEnabled: false });
+    owner.session.autoCompactionEnabled = true;
+    expect(bridge.remoticon.getState()).toEqual({ autoCompactionEnabled: true });
   });
 
   it("matches normalized CLI/launcher tokens and relatives without matching another installation", () => {

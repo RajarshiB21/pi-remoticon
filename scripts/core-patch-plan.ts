@@ -12,6 +12,7 @@ export const STATE_DIR = ".pi-remoticon-patch";
 export const ORIGINAL_HASH = "3d8b2dec97ff9fe4cabef1c69899b00cb8257c625fb0f66c52f4d9914a6b4232";
 export const THIN_BAR_HASH = "954207c65f4c6d21fa69c5b8d7a9b484d1932c11315dd06949ba797059835fea";
 export const BUNDLE_HASH = "11a2c450cb651aac10d180c3282775aee39fdcb0e423ed7c7a6d64dbd1d2616e";
+export const UI_HASH = "a131e48f5368829aa3fd6763e2120615a0562903d9e573b2e72362e665fb187e";
 
 export interface PatchEntry { name: string; find: string; replace: string }
 // MIT excerpts from pi, copyright Mario Zechner. See patches/README.md.
@@ -19,13 +20,29 @@ export const PATCHES: readonly PatchEntry[] = [{
   name: "user-message-bar-height",
   find: 'new Box(this.outputPad,1,content=>theme.bg("userMessageBg",content))',
   replace: 'new Box(this.outputPad,0,content=>theme.bg("userMessageBg",content))',
+}, {
+  name: "footer-auto-compaction-bridge",
+  find: 'this.customFooter=factory(this.ui,theme,this.footerDataProvider)',
+  replace: 'this.customFooter=factory(this.ui,theme,{getGitBranch:()=>this.footerDataProvider.getGitBranch(),getExtensionStatuses:()=>this.footerDataProvider.getExtensionStatuses(),getAvailableProviderCount:()=>this.footerDataProvider.getAvailableProviderCount(),onBranchChange:callback=>this.footerDataProvider.onBranchChange(callback),remoticon:{version:1,getState:()=>({autoCompactionEnabled:this.session.autoCompactionEnabled})}})',
+}, {
+  name: "reset-retry-cancellation-notice",
+  find: 'async _runAgentPrompt(messages){this._isAgentRunActive=!0;',
+  replace: 'async _runAgentPrompt(messages){this.remoticonRetryStopped=false;this._isAgentRunActive=!0;',
+}, {
+  name: "record-retry-cancellation-notice",
+  find: 'abortRetry(){this._retryAbortController?.abort()}',
+  replace: 'abortRetry(){if(this._retryAbortController)this.remoticonRetryStopped=true;this._retryAbortController?.abort()}',
+}, {
+  name: "emit-retry-cancellation-notice",
+  find: 'await this._extensionRunner.emit({type:"agent_settled"})',
+  replace: 'await this._extensionRunner.emit({type:"agent_settled",remoticonRetryStopped:this.remoticonRetryStopped===true})',
 }];
 
 /** Fingerprint exact UTF-8 source or raw file bytes. */
 export const sha256 = (bytes: string | Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
-export interface Edit { path: string; original: string; patched: string }
-export interface FileRecord { path: string; originalHash: string; patchedHash: string }
+export interface Edit { path: string; original: string; patched: string; previous?: string }
+export interface FileRecord { path: string; originalHash: string; patchedHash: string; previousHash?: string }
 export type Phase = "prepared" | "applying" | "applied" | "restoring" | "restored" | "rollback-failed";
 export interface Manifest {
   format: 1;
@@ -72,7 +89,8 @@ function validateManifest(value: unknown, target: string, edits: readonly Edit[]
     if (!record || typeof record !== "object" || paths.has(record.path)) throw new Error("Duplicate or invalid manifest target");
     paths.add(record.path);
     const edit = edits.find(e => e.path === record.path);
-    if (!edit || record.originalHash !== ORIGINAL_HASH || record.patchedHash !== THIN_BAR_HASH) {
+    if (!edit || record.originalHash !== ORIGINAL_HASH || ![THIN_BAR_HASH, UI_HASH].includes(record.patchedHash) ||
+        record.previousHash !== undefined && ![THIN_BAR_HASH, UI_HASH, ORIGINAL_HASH].includes(record.previousHash)) {
       throw new Error("Unsupported manifest file or historical fingerprint");
     }
   }
@@ -91,8 +109,10 @@ export function inspectPlan(
   const pristine = new Map(files);
   const modified: string[] = [];
   for (const [path, content] of files) {
-    if (sha256(content) === THIN_BAR_HASH) {
-      const restored = content.replace(PATCHES[0].replace, PATCHES[0].find);
+    const hash = sha256(content);
+    if ([THIN_BAR_HASH, UI_HASH].includes(hash)) {
+      const restored = hash === THIN_BAR_HASH ? content.replace(PATCHES[0].replace, PATCHES[0].find) : backups.get(path);
+      if (restored === undefined) throw new Error("Missing original backup for managed UI patch");
       if (sha256(restored) !== ORIGINAL_HASH) throw new Error("Legacy original recovery failed");
       pristine.set(path, restored);
       modified.push(path);
@@ -102,10 +122,15 @@ export function inspectPlan(
     .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   if (sha256(JSON.stringify(fingerprints)) !== BUNDLE_HASH) throw new Error("Unrecorded whole-file hash or bundled dependency graph drift");
   const edits = planEdits(pristine);
-  if (edits.length !== 1 || sha256(edits[0].original) !== ORIGINAL_HASH || sha256(edits[0].patched) !== THIN_BAR_HASH) {
+  if (edits.length !== 1 || sha256(edits[0].original) !== ORIGINAL_HASH || sha256(edits[0].patched) !== UI_HASH) {
     throw new Error("Patch definitions no longer match the audited fingerprints");
   }
+  for (const edit of edits) {
+    const installed = files.get(edit.path);
+    if (installed !== edit.original && installed !== edit.patched) edit.previous = installed;
+  }
   if (manifestValue === undefined) {
+    if (modified.some(path => sha256(files.get(path)!) !== THIN_BAR_HASH)) throw new Error("Missing managed UI manifest");
     return { state: interrupted ? "interrupted managed" : modified.length ? "legacy thin-bar-only" : "pristine", edits };
   }
   const manifest = validateManifest(manifestValue, target, edits);
@@ -113,12 +138,13 @@ export function inspectPlan(
     const backup = backups.get(file.path);
     if (backup === undefined || sha256(backup) !== file.originalHash) throw new Error(`Missing or changed original backup for ${file.path}`);
     const hash = sha256(files.get(file.path)!);
-    if (hash !== file.originalHash && hash !== file.patchedHash) throw new Error(`Unknown edits in ${file.path}`);
+    if (hash !== file.originalHash && hash !== file.patchedHash && hash !== file.previousHash) throw new Error(`Unknown edits in ${file.path}`);
   }
   let state: PatchState = "interrupted managed";
   if (!interrupted && manifest.phase === "restored" && modified.length === 0) state = "pristine";
-  if (!interrupted && manifest.phase === "applied" && modified.length === edits.length) {
-    state = manifest.sourceDigest === sourceDigest ? "current managed" : "older managed";
+  if (!interrupted && manifest.phase === "applied" && modified.length === edits.length &&
+      manifest.files.every(file => sha256(files.get(file.path)!) === file.patchedHash)) {
+    state = manifest.sourceDigest === sourceDigest && manifest.files.every(file => file.patchedHash === UI_HASH) ? "current managed" : "older managed";
   }
   return { state, edits, manifest };
 }

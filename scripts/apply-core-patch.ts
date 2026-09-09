@@ -182,12 +182,13 @@ export function transact(
   let replacing = false;
   const manifest: Manifest = {
     format: 1, target, version: PI_VERSION, sourceDigest, phase: "prepared",
-    files: edits.map(edit => ({ path: edit.path, originalHash: sha256(edit.original), patchedHash: sha256(edit.patched) })),
+    files: edits.map(edit => ({ path: edit.path, originalHash: sha256(edit.original), patchedHash: sha256(edit.patched),
+      ...(edit.previous === undefined ? {} : { previousHash: sha256(edit.previous) }) })),
   };
   // All current bytes and path boundaries must be checked before any staging.
   for (const edit of edits) {
     const hash = sha256(readFileSync(safePath(target, edit.path)));
-    if (hash !== sha256(edit.original) && hash !== sha256(edit.patched)) throw new Error(`Unknown edits in ${edit.path}; no files changed`);
+    if (![edit.original, edit.patched, edit.previous].some(bytes => bytes !== undefined && sha256(bytes) === hash)) throw new Error(`Unknown edits in ${edit.path}; no files changed`);
     if (existsSync(safePath(target, stagePath(edit.path)))) throw new Error(`Staged file exists for ${edit.path}; recover it first`);
     const backup = safePath(target, backupPath(edit.path));
     if (existsSync(backup) && sha256(readFileSync(backup)) !== sha256(edit.original)) throw new Error(`Changed backup for ${edit.path}`);
@@ -213,7 +214,7 @@ export function transact(
     for (const edit of edits) {
       const path = safePath(target, edit.path);
       const hash = sha256(readFileSync(path));
-      if (hash !== sha256(edit.original) && hash !== sha256(edit.patched)) throw new Error(`Concurrent edit to ${edit.path}`);
+      if (![edit.original, edit.patched, edit.previous].some(bytes => bytes !== undefined && sha256(bytes) === hash)) throw new Error(`Concurrent edit to ${edit.path}`);
       replaceFile(safePath(target, stagePath(edit.path)), path);
       syncDirectory(dirname(path));
       if (sha256(readFileSync(path)) !== sha256(command === "apply" ? edit.patched : edit.original)) throw new Error(`Replacement verification failed for ${edit.path}`);
@@ -230,7 +231,7 @@ export function transact(
           const path = safePath(target, edit.path);
           const hash = sha256(readFileSync(path));
           if (hash === sha256(edit.original)) continue;
-          if (hash !== sha256(edit.patched)) throw new Error("Unknown concurrent edits", { cause: error });
+          if (![edit.patched, edit.previous].some(bytes => bytes !== undefined && sha256(bytes) === hash)) throw new Error("Unknown concurrent edits", { cause: error });
           const stage = safePath(target, stagePath(edit.path));
           durableWrite(stage, edit.original);
           replaceFile(stage, path);

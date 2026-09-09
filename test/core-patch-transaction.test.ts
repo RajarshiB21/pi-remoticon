@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { transact, runCorePatch } from "../scripts/apply-core-patch.js";
-import { STATE_DIR, sha256, type Edit } from "../scripts/core-patch-plan.js";
+import { transact, runCorePatch, readBundle } from "../scripts/apply-core-patch.js";
+import { STATE_DIR, sha256, planEdits, PATCHES, type Edit } from "../scripts/core-patch-plan.js";
 import { makePiCopy } from "./helpers/patch-harness.js";
 
 /** Exercise multi-file replacement on tiny owned files, then remove the fixture. */
@@ -20,6 +20,8 @@ describe("S0 filesystem transaction", () => {
     try {
       expect(runCorePatch("check", copy.pkgDir).state).toBe("pristine");
       expect(existsSync(join(copy.pkgDir, STATE_DIR))).toBe(false);
+      transact(copy.pkgDir, planEdits(readBundle(copy.pkgDir), [PATCHES[0]]), "apply", sha256("S0 source"));
+      expect(runCorePatch("status", copy.pkgDir).state).toBe("older managed");
       expect(runCorePatch("apply", copy.pkgDir).state).toBe("current managed");
       const path = join(copy.pkgDir, STATE_DIR, "manifest.json");
       const manifest = JSON.parse(readFileSync(path, "utf8"));

@@ -3,9 +3,11 @@
 The supported desktop target is Windows with pi in VS Code's integrated terminal.
 The existing Linux CI runner validates the tests; macOS support is outside scope.
 
-This patch removes the vertical padding above and below user messages. It changes
-only the audited bundled UI code in npm pi **0.85.1**. It does not change credentials,
-settings, sessions, model execution, or tools.
+This patch removes user-message vertical padding and supplies the read-only
+auto-compaction state used by the composer/footer extension. It also reports
+retry cancellation on the existing settlement event so the footer says Stopped.
+It targets audited npm pi **0.85.1**. Model execution, retry behavior, credentials,
+settings and stored sessions remain native.
 
 ## Inspect and apply
 
@@ -50,8 +52,9 @@ States have specific meanings:
 
 - `pristine`: audited original files, optionally with a completed restore record.
 - `current managed`: audited thin-bar files and a manifest matching this source.
-- `older managed`: the same supported thin-bar fingerprints with a different
-  recorded source digest. Apply rebuilds from verified original bytes.
+- `older managed`: a supported earlier revision or a different recorded source
+  digest. Apply rebuilds from verified original bytes and records the previous
+  file fingerprint before replacement, so interrupted upgrades can be recovered.
 - `legacy thin-bar-only`: the exact earlier thin-bar output without a manifest.
   Run restore first. It reconstructs the original, verifies its literal audited
   hash, and saves that verified recovery backup before replacement.
@@ -75,9 +78,14 @@ preserved. Interrupted states must be recovered before a new apply.
 
 Pure validation and edits live in `scripts/core-patch-plan.ts`; filesystem and
 process operations live in `scripts/apply-core-patch.ts`. The literal original and
-legacy patched hashes are retained independently of the current definitions. S0
-has no historical transform beyond the earlier thin-bar patch and no runtime
-factory to compile.
+legacy patched hashes are retained independently of the current definitions.
+The earlier thin-bar revision remains supported for guarded upgrade and restore.
+
+The UI extension uses one 50 ms decoration clock during a run, paused for blocking
+prompts and stopped at settlement. Set `PI_REMOTICON_MOTION=off` before starting pi
+to disable decorative motion while keeping streamed text and state changes.
+If the bridge is missing, the footer reports the repair command and preserves
+native editing and the native working indicator.
 
 The small matching excerpts come from
 [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi),
