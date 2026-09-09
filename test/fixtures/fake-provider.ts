@@ -39,11 +39,14 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool(createBashToolDefinition(process.cwd(), { operations: {
     async exec(command, _cwd, options) {
       if (!["echo restoration-fixture", "fixture-fail", "fixture-long"].includes(command)) throw new Error("Unsupported fixture command");
-      options.signal?.throwIfAborted();
+      if (options.signal?.aborted) throw new Error("aborted");
       if (command === "fixture-fail") throw new Error("Fixture command failed; continuing safely");
       if (command === "fixture-long") for (let i = 0; i < 120; i++) {
         options.onData(Buffer.from(`Fixture output ${i}: ${"read-only output ".repeat(20)}\n`));
-        await delay(100, undefined, { signal: options.signal });
+        await delay(100, undefined, { signal: options.signal }).catch(error => {
+          if (options.signal?.aborted) throw new Error("aborted");
+          throw error;
+        });
       }
       options.onData(Buffer.from("restoration-fixture\n"));
       return { exitCode: 0 };

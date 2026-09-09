@@ -65,6 +65,12 @@ describe("fullscreen composer/footer lifecycle", () => {
       expect(rows[commentary + 1]).toContain("Read 2 files · ran 1 command");
       expect(rows[commentary + 1].indexOf("Read")).toBe(rows[commentary].indexOf("I'll"));
       expect(expanded).toContain("› Keep the reasoning");
+      term.click(rows[commentary + 1].indexOf("Read"), commentary + 1);
+      await term.waitFor("restoration-fixture", 3000);
+      term.press("Ctrl+O");
+      term.press("Ctrl+O");
+      await term.waitFor("Read 2 files · ran 1 command", 3000);
+      await term.waitForStable(100, 3000);
       term.press("Ctrl+T");
       await term.waitFor("Thinking...", 5000);
       await term.waitForStable(100, 3000);

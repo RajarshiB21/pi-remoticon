@@ -80,9 +80,11 @@ export function createAssistantPresenter(d: {
           },
         };
         const component = kind === "thinking" ? new d.MouseRegion(wrapped, event => {
-          if (event.type !== "click" || event.button !== "left") return undefined;
-          this.thinkingVisibilityOverrides.set(runIndex, !hidden);
-          if (this.lastMessage) this.updateContent(this.lastMessage);
+          if (event.button !== "left" || event.type !== "click" && !(event.type === "press" && event.y === 0)) return undefined;
+          if (event.type === "click") {
+            this.thinkingVisibilityOverrides.set(runIndex, !hidden);
+            if (this.lastMessage) this.updateContent(this.lastMessage);
+          }
           return { handled: true };
         }) : wrapped;
         record = { text, signature, component, markdown, clear: () => { cachedWidth = -1; } };

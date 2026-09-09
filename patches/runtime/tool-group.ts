@@ -113,8 +113,8 @@ export function createToolGroups(d: {
       return [...header, ...(this.expanded ? super.render(width) : [])];
     }
     override handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]> {
-      if (event.y === Number(this.leadingBlank) && event.type === "click" && event.button === "left") {
-        this.setExpanded(!this.expanded);
+      if (event.y === Number(this.leadingBlank) && (event.type === "press" || event.type === "click") && event.button === "left") {
+        if (event.type === "click") this.setExpanded(!this.expanded);
         return { handled: true, target: { component: this, originX: event.screenX - event.x, originY: event.screenY - event.y, width: event.width, height: event.height } };
       }
       return this.expanded && event.y >= this.detailOffset ? super.handleMouse({ ...event, y: event.y - this.detailOffset, height: event.height - this.detailOffset }) : undefined;

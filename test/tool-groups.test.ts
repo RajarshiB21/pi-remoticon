@@ -98,6 +98,8 @@ it("groups original rows across empty turns, splits owned rows at late content a
   const failure = summary.render(120).map(stripVTControlCharacters);
   expect(failure[0]).toContain("Read 2 files · ran 1 command · 1 read failed");
   expect(failure[1]).toBe("    ! read: denied");
+  expect(summary.handleMouse({ ...event, type: "press", y: 0 })?.handled).toBe(true);
+  expect(summary.expanded).toBe(false);
   expect(summary.handleMouse({ ...event, y: 0 })?.handled).toBe(true);
   expect(summary.expanded).toBe(true);
 });
