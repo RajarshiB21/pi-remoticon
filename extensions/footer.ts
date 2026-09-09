@@ -5,7 +5,7 @@ import { buildFooterLines, type FooterUsage } from "../lib/footer-format.js";
 import { Composer } from "../lib/composer.js";
 import { RunState, dotColor, effortRank, rgb } from "../lib/ui-state.js";
 
-interface Bridge { version: number; getState(): { autoCompactionEnabled: boolean } }
+interface Bridge { version: number; getState(): { autoCompactionEnabled: boolean; outputPad?: number } }
 
 /** One owner for footer, editor, elapsed widget and the decoration clock. */
 export default function (pi: ExtensionAPI) {
@@ -17,6 +17,7 @@ export default function (pi: ExtensionAPI) {
   let rank = 0;
   let effort = "unknown";
   let frameSeconds = 0;
+  let outputPadding = () => 1;
   const motion = process.env.PI_REMOTICON_MOTION !== "off";
   const stopClock = () => { if (timer) clearInterval(timer); timer = undefined; };
   const updateClock = () => {
@@ -38,7 +39,11 @@ export default function (pi: ExtensionAPI) {
     run.settle();
     updateClock();
     refresh?.(ctx, true);
-    ctx.ui.setWidget("remoticon-finished", [rgb([164, 165, 174], `${run.outcome} · ${elapsed.toFixed(1)}s`)]);
+    const text = rgb([164, 165, 174], `${run.outcome} · ${elapsed.toFixed(1)}s`);
+    ctx.ui.setWidget("remoticon-finished", () => ({
+      render: (width: number) => [truncateToWidth(" ".repeat(Math.min(width, outputPadding() + 2)) + text, width, "")],
+      invalidate() {},
+    }));
   };
 
   pi.on("session_start", (_event, ctx) => {
@@ -55,6 +60,7 @@ export default function (pi: ExtensionAPI) {
         return { invalidate() {}, render: (width: number) => [truncateToWidth("Remoticon UI patch unavailable; run core-patch status for this installation", width, "")] };
       }
       let modelId = ctx.model?.id ?? "no-model";
+      outputPadding = () => bridge.getState().outputPad ?? 1;
       let cwd = ctx.cwd;
       let branch = provider.getGitBranch();
       let ctxPercent: number | null = null;

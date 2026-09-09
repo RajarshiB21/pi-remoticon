@@ -4,8 +4,15 @@ import { mix, rgb, ruleColor, topRule, type Activity } from "./ui-state.js";
 
 export interface Decoration { rank: number; effort: string; seconds: number; activity: Activity; moving: boolean }
 
-/** Preserve pi editing and app keybindings; change only the border renderers. */
+/** Preserve native editing; reserve display padding for the prompt. */
 export class Composer extends CustomEditor {
+  override setPaddingX(padding: number): void { super.setPaddingX(Math.max(2, padding)); }
+  override render(width: number): string[] {
+    if (this.getPaddingX() < 2) this.setPaddingX(this.getPaddingX());
+    const lines = super.render(width);
+    if (width >= 5 && lines[1]?.startsWith("  ")) lines[1] = rgb([185, 165, 232], "› ") + lines[1].slice(2);
+    return lines;
+  }
   decoration: () => Decoration = () => ({ rank: 0, effort: "unknown", seconds: 0, activity: "Working", moving: false });
   protected override renderTopBorder(width: number, hidden: number): string {
     if (hidden || this.getText().startsWith("!")) return super.renderTopBorder(width, hidden);

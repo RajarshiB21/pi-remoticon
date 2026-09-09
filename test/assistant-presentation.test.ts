@@ -24,6 +24,8 @@ it("retains native assistant identity, cached thinking, ordered deltas, mouse co
   expect(native).toBeInstanceOf(AssistantMessageComponent);
   expect(plain()).toContain("Reasoning");
   expect(plain()).toContain("First thought.");
+  expect(native.render(90).join("\n")).toContain("38;2;185;165;232mReasoning");
+  expect(native.render(90).join("\n")).not.toContain("\x1b[3m");
   const renders = markdownRenders;
   message.content.push({ type: "text", text: "Answer **one** " + "wide prose 界 ".repeat(12) });
   present.call(owner, message, true);
@@ -43,7 +45,11 @@ it("retains native assistant identity, cached thinking, ordered deltas, mouse co
   expect(lines).toEqual(before);
   expect(plain().match(/●/g)).toHaveLength(1);
   for (const row of native.render(20)) expect(visibleWidth(row)).toBeLessThanOrEqual(20);
-  const clicked = native.handleMouse({ type: "click", button: "left", x: 3, y: 1, width: 20, height: native.render(20).length, screenX: 3, screenY: 1, shift: false, alt: false, ctrl: false } satisfies TuiMouseEvent);
+  const mouse = { type: "press", button: "left", x: 3, y: 1, width: 20, height: native.render(20).length, screenX: 3, screenY: 1, shift: false, alt: false, ctrl: false } satisfies TuiMouseEvent;
+  expect(native.handleMouse(mouse)?.handled).toBe(true);
+  expect(plain()).toContain("First thought.");
+  expect(native.handleMouse({ ...mouse, y: 2 })).toBeUndefined();
+  const clicked = native.handleMouse({ ...mouse, type: "click" });
   expect(clicked?.handled).toBe(true);
   expect(plain()).toContain("Thinking...");
   expect(plain()).not.toContain("First thought.");

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ProviderConfig, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Context, Model, Api, ToolResultMessage } from "@earendil-works/pi-ai";
 import registerFake, { wantsToolCall } from "./fixtures/fake-provider.js";
 
@@ -10,7 +10,11 @@ const model = { api: "openai-completions", provider: "fake", id: "fake-model" } 
 describe("finite fake provider", () => {
   it("starts each new user scenario, retains unique calls, streams deltas and terminates on abort", async () => {
     let config: ProviderConfig | undefined;
-    registerFake({ registerProvider: (_name: string, value: ProviderConfig) => { config = value; } } as unknown as ExtensionAPI);
+    let shell: ToolDefinition | undefined;
+    registerFake({ registerTool(value: ToolDefinition) { shell = value; }, registerProvider: (_name: string, value: ProviderConfig) => { config = value; } } as unknown as ExtensionAPI);
+    const shellAbort = new AbortController();
+    const execution = shell!.execute("cancel", { command: "fixture-long" }, shellAbort.signal, () => shellAbort.abort(), undefined as never);
+    await expect(execution).rejects.toThrow("Command aborted");
     for (const [messages, expected] of [
       [[user], true], [[user, result], false], [[user, result, user], true],
     ] as const) expect(wantsToolCall({ messages: [...messages] } as Context)).toBe(expected);

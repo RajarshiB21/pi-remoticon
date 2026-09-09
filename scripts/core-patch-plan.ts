@@ -13,7 +13,11 @@ export const ORIGINAL_HASH = "3d8b2dec97ff9fe4cabef1c69899b00cb8257c625fb0f66c52
 export const THIN_BAR_HASH = "954207c65f4c6d21fa69c5b8d7a9b484d1932c11315dd06949ba797059835fea";
 export const BUNDLE_HASH = "11a2c450cb651aac10d180c3282775aee39fdcb0e423ed7c7a6d64dbd1d2616e";
 export const S1_HASH = "a131e48f5368829aa3fd6763e2120615a0562903d9e573b2e72362e665fb187e";
-export const UI_HASH = "2b59443dd6fe117213201279d8152a5ec1aba91bbaef106bb5971f21f848cd0f";
+export const INITIAL_UI_HASH = "2b59443dd6fe117213201279d8152a5ec1aba91bbaef106bb5971f21f848cd0f";
+export const RESTORATION_PREVIEW_HASH = "8dcf5264d66860c4d46030eca64a4558b2ef6e2e4dc0e8997ff62d4dd385b26c";
+export const RESTORATION_COLOR_HASH = "7c6f7003b1d9279ceba1fa39d5cf970f6741998454f44340c5a7613e407ffe32";
+export const RESTORATION_GESTURE_HASH = "96207a8427cb7fea898bc5f3495b1251add31155aeadf65ed7bf8cd1e703f90c";
+export const UI_HASH = "433b41975adb90f51a880fb042b1c2d6bd7dce56da9ee9f70073671f968299a5";
 
 export interface PatchEntry { name: string; find: string; replace: string }
 // MIT excerpts from pi, copyright Mario Zechner. See patches/README.md.
@@ -24,7 +28,7 @@ export const PATCHES: readonly PatchEntry[] = [{
 }, {
   name: "footer-auto-compaction-bridge",
   find: 'this.customFooter=factory(this.ui,theme,this.footerDataProvider)',
-  replace: 'this.customFooter=factory(this.ui,theme,{getGitBranch:()=>this.footerDataProvider.getGitBranch(),getExtensionStatuses:()=>this.footerDataProvider.getExtensionStatuses(),getAvailableProviderCount:()=>this.footerDataProvider.getAvailableProviderCount(),onBranchChange:callback=>this.footerDataProvider.onBranchChange(callback),remoticon:{version:1,getState:()=>({autoCompactionEnabled:this.session.autoCompactionEnabled})}})',
+  replace: 'this.customFooter=factory(this.ui,theme,{getGitBranch:()=>this.footerDataProvider.getGitBranch(),getExtensionStatuses:()=>this.footerDataProvider.getExtensionStatuses(),getAvailableProviderCount:()=>this.footerDataProvider.getAvailableProviderCount(),onBranchChange:callback=>this.footerDataProvider.onBranchChange(callback),remoticon:{version:1,getState:()=>({autoCompactionEnabled:this.session.autoCompactionEnabled,outputPad:this.outputPad})}})',
 }, {
   name: "reset-retry-cancellation-notice",
   find: 'async _runAgentPrompt(messages){this._isAgentRunActive=!0;',
@@ -90,8 +94,8 @@ function validateManifest(value: unknown, target: string, edits: readonly Edit[]
     if (!record || typeof record !== "object" || paths.has(record.path)) throw new Error("Duplicate or invalid manifest target");
     paths.add(record.path);
     const edit = edits.find(e => e.path === record.path);
-    if (!edit || record.originalHash !== ORIGINAL_HASH || ![THIN_BAR_HASH, S1_HASH, UI_HASH].includes(record.patchedHash) ||
-        record.previousHash !== undefined && ![THIN_BAR_HASH, S1_HASH, UI_HASH, ORIGINAL_HASH].includes(record.previousHash)) {
+    if (!edit || record.originalHash !== ORIGINAL_HASH || ![THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, UI_HASH].includes(record.patchedHash) ||
+        record.previousHash !== undefined && ![THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, UI_HASH, ORIGINAL_HASH].includes(record.previousHash)) {
       throw new Error("Unsupported manifest file or historical fingerprint");
     }
   }
@@ -111,7 +115,7 @@ export function inspectPlan(
   const modified: string[] = [];
   for (const [path, content] of files) {
     const hash = sha256(content);
-    if ([THIN_BAR_HASH, S1_HASH, UI_HASH].includes(hash)) {
+    if ([THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, UI_HASH].includes(hash)) {
       const restored = hash === THIN_BAR_HASH ? content.replace(PATCHES[0].replace, PATCHES[0].find) : backups.get(path);
       if (restored === undefined) throw new Error("Missing original backup for managed UI patch");
       if (sha256(restored) !== ORIGINAL_HASH) throw new Error("Legacy original recovery failed");
