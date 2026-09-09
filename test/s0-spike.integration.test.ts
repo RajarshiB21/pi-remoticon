@@ -6,8 +6,13 @@
 // Anchor is a stable, model-independent line (pi's logo), never model output.
 // This test is also the behavioral guard for Rule 1: it asserts the selected
 // model is the fake one and never a real/metered provider.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { bootPi } from "./helpers/boot-pi.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+let fixtureCwd: string;
 
 // Drop pi's volatile version/update banner before comparing two boots — it is
 // version-dependent chrome, not part of the UI under test. (The one-time
@@ -25,15 +30,19 @@ describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
   // that follow are warm and fast. The log line surfaces the real cold-boot cost
   // in CI so the budgets can be tuned from data, not guesses.
   beforeAll(async () => {
-    const warm = await bootPi(60000, 30000); // generous cold-paint budget; 90s max, under the CI ceiling
+    fixtureCwd = mkdtempSync(join(tmpdir(), "pi-frame-"));
+    const warm = await bootPi(60000, 30000, [], {}, fixtureCwd);
     await warm.close();
   });
+  afterAll(() => { if (fixtureCwd) rmSync(fixtureCwd, { recursive: true, force: true }); });
 
   // Both of these inspect the same settled frame, so they share one boot.
-  it("renders frame-zero: pi logo, fake model (not a real one), native fullscreen", async () => {
-    const term = await bootPi();
+  it("renders native fullscreen with the fake model and repeats the same frame on a second boot", async () => {
+    const term = await bootPi(undefined, undefined, [], {}, fixtureCwd);
+    let firstFrame: string;
     try {
       const frame = term.viewport.getText();
+      firstFrame = stripVolatile(frame);
       expect(frame).toContain("pi v"); // stable anchor, model-independent
       expect(frame).toContain("fake-model"); // the fake model was selected, not a real one
       expect(frame.toLowerCase()).not.toContain("openrouter");
@@ -47,19 +56,10 @@ describe("S0: termless can boot pi at fullscreen and read frame-zero", () => {
     } finally {
       await term.close();
     }
-  });
-
-  // Two boots, so give it headroom past the default 30s test timeout (still well
-  // under the suite's 2-minute CI ceiling).
-  it("reads the same frame-zero twice (determinism)", async () => {
-    const a = await bootPi();
-    const frameA = stripVolatile(a.viewport.getText());
-    await a.close();
-
-    const b = await bootPi();
+    const b = await bootPi(undefined, undefined, [], {}, fixtureCwd);
     const frameB = stripVolatile(b.viewport.getText());
     await b.close();
 
-    expect(frameA).toBe(frameB);
+    expect(firstFrame).toBe(frameB);
   }, 75000); // two default boots (30s ceiling each) with headroom, still under the CI ceiling
 });

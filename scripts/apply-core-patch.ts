@@ -1,160 +1,337 @@
-// Apply the calm-UI core patch to an installed copy of pi.
-//
-// WHY THIS EXISTS (P0). Three UI facts pi exposes no extension hook for — the
-// transcript state dots (S3), the showStatus() exposure the dynamic line needs
-// (S3), and the user-message bar height (P0) — can only be changed by editing
-// pi's own installed files. INTENT accepts that on one condition: the edits are
-// carried by a maintained, drift-guarded patch, never hand-edits. This is that
-// mechanism; P0 proves it against the smallest real target (the bar height).
-//
-// WHERE THE CODE ACTUALLY LIVES. The running pi is `dist/bundle/cli.js`, which
-// imports only from `dist/bundle/chunks/*.js`. The loose `dist/modes/**` tree is
-// orphaned build output the runtime never loads — INTENT/spec cite it, but
-// patching it changes nothing. So every `find` string is the *bundled* (minified,
-// condensed) form and we scan the chunks dir. The chunk filename is a content
-// hash that moves on every pi build, so we NEVER hardcode it — we locate the one
-// chunk that contains the find-string.
-//
-// MIT: the `find` excerpts are short substrings of @earendil-works/pi-coding-agent
-// (MIT © Mario Zechner). See patches/README.md.
-//
-// USAGE:
-//   tsx scripts/apply-core-patch.ts [targetPackageDir]
-// targetPackageDir defaults to the local devDependency package. After a real
-// `pi update`, the user runs this by hand pointed at the GLOBAL install package,
-// because `npm i -g pi` cannot know about this patch.
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import {
+  readFileSync, writeFileSync, readdirSync, mkdirSync, openSync, closeSync,
+  fsyncSync, renameSync, unlinkSync, existsSync, realpathSync, lstatSync, rmdirSync,
+} from "node:fs";
+import { dirname, join, resolve, relative, isAbsolute, posix } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
+import ts from "typescript";
+import { runtimePatches } from "./runtime-patches.js";
+import {
+  CLI_PATH, STATE_DIR, PI_VERSION, PATCHES, sha256, inspectPlan, affectedProcesses,
+  type Edit, type Manifest, type Inspection, type ProcessRecord,
+} from "./core-patch-plan.js";
 
+export type Command = "status" | "check" | "apply" | "restore";
+const commands: Command[] = ["status", "check", "apply", "restore"];
 const here = dirname(fileURLToPath(import.meta.url));
-const repoRoot = dirname(here);
-
-// The default target: the pi package inside this repo's node_modules. No
-// machine-absolute path (Static-lane guard) — the layout is stable.
-export const DEFAULT_TARGET = join(repoRoot, "node_modules", "@earendil-works", "pi-coding-agent");
-
-// The chunks directory, relative to a pi package root.
-export const CHUNKS_SUBDIR = join("dist", "bundle", "chunks");
-
-export interface PatchEntry {
-  /** Human name for logs/errors — which locked decision this carries. */
-  readonly name: string;
-  /** Exact bundled substring to locate. Must occur exactly once across all chunks. */
-  readonly find: string;
-  /** Replacement text. Presence of this string means "already applied". */
-  readonly replace: string;
+const parsedDependencies = new Map<string, string[]>();
+/** Identify the exact maintained planner and delivery source in each manifest. */
+export function patchSourceDigest(): string {
+  return sha256(["core-patch-plan.ts", "apply-core-patch.ts", "runtime-patches.ts", "../patches/runtime/assistant.ts", "../patches/runtime/tool-group.ts"].map(name =>
+    `${name}\n${readFileSync(join(here, name), "utf8")}`).join("\n"));
 }
 
-// The patch list. P0 ships one entry: the user-message bar's vertical padding.
-// Box(paddingX, paddingY) — outputPad is horizontal, the literal 1 is vertical.
-// 1 -> 0 makes the bar thin (INTENT.md user-message-bar height decision).
-export const PATCHES: readonly PatchEntry[] = [
-  {
-    name: "user-message-bar-height",
-    find: `new Box(this.outputPad,1,content=>theme.bg("userMessageBg",content))`,
-    replace: `new Box(this.outputPad,0,content=>theme.bg("userMessageBg",content))`,
-  },
-];
+/** Reject links in every path we may replace, including parent directories. */
+function safePath(target: string, path: string): string {
+  const full = resolve(target, path);
+  const rel = relative(target, full);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error(`Path escapes target: ${path}`);
+  let current = target;
+  for (const part of rel.split(/[\\/]/)) {
+    current = join(current, part);
+    let linked = false;
+    try { linked = lstatSync(current).isSymbolicLink(); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (linked) throw new Error(`Refusing linked patch path: ${path}`);
+  }
+  return full;
+}
 
-export type EntryDecision =
-  | { readonly kind: "already-applied" }
-  | { readonly kind: "apply"; readonly file: string; readonly next: string };
-
-/**
- * Decide what to do with one entry given every chunk's current content.
- * Pure — no file I/O — so the whole guard logic is unit-testable.
- *
- * files: chunk filename -> content.
- * Throws (loudly, naming the entry + string) on: target missing (drift), target
- * ambiguous, or a MIXED state (replacement already present somewhere while an
- * original target still exists) — that loud failure IS the drift guard; a pi
- * update that condenses, moves, or duplicates the target trips it here, never a
- * silent no-op or a falsely-reported "already applied".
- */
-export function decideEntry(files: ReadonlyMap<string, string>, entry: PatchEntry): EntryDecision {
-  // Count original-target hits across all chunks AND check whether the
-  // replacement is present anywhere. Both must be known before deciding: after a
-  // successful apply the find-string is gone (so absence of `find` alone must
-  // not look like drift), and a package holding the replacement in one chunk
-  // while an original target still sits in another is an inconsistent state that
-  // must fail loudly, not report "already applied" (which would silently leave
-  // the second site unpatched).
-  const hits: string[] = [];
-  let replaced = false;
-  for (const [file, content] of files) {
-    if (content.includes(entry.replace)) replaced = true;
-    let idx = content.indexOf(entry.find);
-    while (idx !== -1) {
-      hits.push(file);
-      idx = content.indexOf(entry.find, idx + entry.find.length);
+/** Find literal local JS dependencies without evaluating the audited bundle. */
+function localDependencies(path: string, content: string): string[] {
+  const refs = new Set<string>();
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+  /** Collect imports, requires and worker URLs while traversing the syntax tree. */
+  function visit(node: ts.Node): void {
+    let specifier: ts.Node | undefined;
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) specifier = node.moduleSpecifier;
+    else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+      ts.isIdentifier(node.expression) && node.expression.text === "require")) specifier = node.arguments[0];
+    else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "URL") specifier = node.arguments?.[0];
+    if (specifier && ts.isStringLiteralLike(specifier) && specifier.text.startsWith(".") && specifier.text.endsWith(".js")) {
+      const dependency = posix.normalize(posix.join(posix.dirname(path), specifier.text));
+      if (!dependency.startsWith("dist/bundle/")) throw new Error("Bundled dependency escapes dist/bundle");
+      refs.add(dependency);
     }
+    ts.forEachChild(node, visit);
   }
-
-  if (replaced) {
-    if (hits.length === 0) return { kind: "already-applied" };
-    throw new Error(
-      `[apply-core-patch] "${entry.name}": inconsistent patch state — the replacement is already present` +
-        ` but the original target still exists ${hits.length} time(s) (in ${[...new Set(hits)].join(", ")}). ` +
-        `This is the drift guard firing: pi likely duplicated or partially moved this code. ` +
-        `Update the find/replace strings for "${entry.name}" to match the new pi source.`
-    );
-  }
-
-  if (hits.length === 0) {
-    throw new Error(
-      `[apply-core-patch] "${entry.name}": target string not found in any chunk.\n` +
-        `  Looked for: ${entry.find}\n` +
-        `  This is the drift guard firing: pi likely moved or rewrote this code. ` +
-        `Update the find-string for "${entry.name}" to match the new pi source.`
-    );
-  }
-  if (hits.length > 1) {
-    throw new Error(
-      `[apply-core-patch] "${entry.name}": target string is ambiguous — found ${hits.length} ` +
-        `times (in ${[...new Set(hits)].join(", ")}). Refusing to patch. Make the find-string more specific.`
-    );
-  }
-
-  const file = hits[0];
-  const content = files.get(file)!;
-  return { kind: "apply", file, next: content.replace(entry.find, entry.replace) };
+  visit(source);
+  return [...refs];
 }
 
-/** Read every *.js chunk from a pi package's chunks dir into a filename->content map. */
-export function readChunks(pkgDir: string): Map<string, string> {
-  const chunksDir = join(pkgDir, CHUNKS_SUBDIR);
+/** Reject lossy decoding so text edits preserve the original byte fingerprints. */
+function readUtf8(path: string): string {
+  const bytes = readFileSync(path);
+  const content = bytes.toString("utf8");
+  if (!bytes.equals(Buffer.from(content, "utf8"))) throw new Error(`Invalid UTF-8 bytes in ${path}`);
+  return content;
+}
+
+/** Read the CLI dependency graph; cache parsing only, never file contents. */
+export function readBundle(target: string, dependencies = parsedDependencies): Map<string, string> {
   const files = new Map<string, string>();
-  for (const name of readdirSync(chunksDir)) {
-    if (name.endsWith(".js")) files.set(name, readFileSync(join(chunksDir, name), "utf8"));
+  /** Read each reachable file once, including graphs containing import cycles. */
+  function read(path: string): void {
+    if (files.has(path)) return;
+    const content = readUtf8(safePath(target, path));
+    files.set(path, content);
+    const key = `${path}:${sha256(content)}`;
+    let refs = dependencies.get(key);
+    if (!refs) { refs = localDependencies(path, content); dependencies.set(key, refs); }
+    for (const dependency of refs) read(dependency);
   }
-  if (files.size === 0) {
-    throw new Error(`[apply-core-patch] no .js chunks under ${chunksDir} — is this a pi package dir?`);
-  }
+  read(CLI_PATH);
   return files;
 }
 
-/** Apply every patch entry to a pi package on disk. Returns a per-entry log. */
-export function applyCorePatch(pkgDir: string = DEFAULT_TARGET): { name: string; status: EntryDecision["kind"] }[] {
-  const files = readChunks(pkgDir);
-  const log: { name: string; status: EntryDecision["kind"] }[] = [];
-  for (const entry of PATCHES) {
-    const decision = decideEntry(files, entry);
-    if (decision.kind === "apply") {
-      writeFileSync(join(pkgDir, CHUNKS_SUBDIR, decision.file), decision.next);
-      files.set(decision.file, decision.next); // keep the in-memory map consistent for later entries
-    }
-    log.push({ name: entry.name, status: decision.kind });
+/** Keep original bytes separate from the installed bundle and its sibling stages. */
+const backupPath = (path: string) => `${STATE_DIR}/backups/${path}.original`;
+/** Keep replacements beside their destination for same-filesystem renames. */
+const stagePath = (path: string) => `${path}.pi-remoticon-next.js`;
+const manifestPath = `${STATE_DIR}/manifest.json`;
+const lockPath = `${STATE_DIR}/lock.json`;
+
+/** Validate live package, bundle and recovery metadata before any mutation. */
+function readInspection(target: string, dependencies: Map<string, string[]>): Inspection {
+  const pkg: { name?: unknown; version?: unknown } = JSON.parse(readFileSync(safePath(target, "package.json"), "utf8"));
+  const files = readBundle(target, dependencies);
+  const state = safePath(target, STATE_DIR);
+  const manifestFile = safePath(target, manifestPath);
+  const manifest: unknown = existsSync(manifestFile) ? JSON.parse(readFileSync(manifestFile, "utf8")) : undefined;
+  // Backup paths come from the discovered bundle, never from untrusted JSON.
+  const backups = new Map<string, string>();
+  for (const path of files.keys()) {
+    const backup = safePath(target, backupPath(path));
+    if (existsSync(backup)) backups.set(path, readUtf8(backup));
   }
-  return log;
+  const pristine = new Map([...files].map(([path, content]) => [path, backups.get(path) ?? content]));
+  return inspectPlan(target, pkg.name, pkg.version, files, patchSourceDigest(), manifest, backups,
+    existsSync(safePath(target, lockPath)) || existsSync(state) && manifest === undefined ||
+    existsSync(safePath(target, `${manifestPath}.next`)) || [...files.keys()].some(path => existsSync(safePath(target, stagePath(path)))),
+    [...PATCHES, ...runtimePatches(pristine)]);
 }
 
-// Run when invoked directly (not when imported by a test).
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const target = process.argv[2] ?? DEFAULT_TARGET;
-  const log = applyCorePatch(target);
-  for (const { name, status } of log) {
-    console.log(`  ${status === "apply" ? "patched" : "already applied"}: ${name}`);
+/** Flush directory entries where the platform supports opening directories. */
+function syncDirectory(path: string): void {
+  // Windows cannot open directories through Node's fs.open. File contents are
+  // flushed on both platforms; directory entries are additionally flushed on Unix.
+  if (process.platform === "win32") return;
+  const fd = openSync(path, "r");
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
+/** Flush file contents before returning; exclusive writes refuse existing stages. */
+function durableWrite(path: string, bytes: string, exclusive = false): void {
+  const fd = openSync(path, exclusive ? "wx" : "w");
+  try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+  syncDirectory(dirname(path));
+}
+
+/** Replace the phase record only after its complete contents have been flushed. */
+function saveManifest(target: string, manifest: Manifest): void {
+  const path = safePath(target, manifestPath);
+  const next = safePath(target, `${manifestPath}.next`);
+  durableWrite(next, `${JSON.stringify(manifest, null, 2)}\n`);
+  renameSync(next, path);
+  syncDirectory(dirname(path));
+}
+
+/** Read process identities internally without exposing command lines in diagnostics. */
+function processRows(): ProcessRecord[] {
+  if (process.platform === "win32") {
+    if (!process.env.SystemRoot) throw new Error("SystemRoot is required for process inspection");
+    const shell = join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    // OEM encoding can turn Unicode arrows into raw JSON control bytes.
+    const script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine,Name) | ConvertTo-Json -Compress";
+    const output = execFileSync(shell, ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const rows: { ProcessId: number; ParentProcessId: number; ExecutablePath: string | null; CommandLine: string | null; Name: string }[] = JSON.parse(output);
+    if (!Array.isArray(rows)) throw new Error("Process query returned no process list");
+    return rows.map(row => ({ pid: row.ProcessId, parentPid: row.ParentProcessId, executable: row.ExecutablePath, commandLine: row.CommandLine, name: row.Name }));
   }
-  console.log(`[apply-core-patch] done (${target})`);
+  const output = execFileSync("ps", ["-axo", "pid=,ppid=,comm=,args="], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return output.trim().split("\n").map(line => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/.exec(line);
+    if (!match) throw new Error("Cannot read process identity");
+    return { pid: Number(match[1]), parentPid: Number(match[2]), executable: match[3], commandLine: match[4], name: match[3] };
+  });
+}
+
+/** Refuse mutations when the target is running or process identity is unavailable. */
+function assertClosed(target: string, command: Command): void {
+  let rows: ProcessRecord[];
+  try {
+    rows = processRows();
+    if (rows.some(row => /(?:^|[\\/])(?:node|pi)(?:\.exe)?$/i.test(row.name) && (!row.commandLine || !row.executable))) {
+      throw new Error("A pi-capable process is not visible");
+    }
+  } catch (error) {
+    throw new Error(`Process visibility is insufficient. Confirm pi using ${target} is closed before recovery; no files changed. Restore process-query access and rerun ${command}.`, { cause: error });
+  }
+  const modules = dirname(dirname(target));
+  const prefix = dirname(modules);
+  const paths = [join(target, CLI_PATH), ...["pi", "pi.cmd", "pi.ps1"].flatMap(name => [join(prefix, name), join(modules, ".bin", name)])];
+  const pids = affectedProcesses(rows, paths, process.platform === "win32");
+  if (pids.length) throw new Error(`PID ${pids.join(", ")} uses ${target}. Close pi using ${target}, then rerun ${command}. No files changed.`);
+}
+
+/** This low-level transaction is also exercised with tiny disposable test files. */
+export function transact(
+  target: string, edits: readonly Edit[], command: "apply" | "restore", sourceDigest: string,
+  replaceFile: (from: string, to: string) => void = renameSync,
+): void {
+  const targets = edits.map(edit => resolve(target, edit.path));
+  if (!edits.length || new Set(targets.map(path => process.platform === "win32" ? path.toLowerCase() : path)).size !== edits.length) throw new Error("Empty or duplicate target plans");
+  const state = safePath(target, STATE_DIR);
+  const staged: string[] = [];
+  let replacing = false;
+  const manifest: Manifest = {
+    format: 1, target, version: PI_VERSION, sourceDigest, phase: "prepared",
+    files: edits.map(edit => ({ path: edit.path, originalHash: sha256(edit.original), patchedHash: sha256(edit.patched),
+      ...(edit.previous === undefined ? {} : { previousHash: sha256(edit.previous) }) })),
+  };
+  // All current bytes and path boundaries must be checked before any staging.
+  for (const edit of edits) {
+    const hash = sha256(readFileSync(safePath(target, edit.path)));
+    if (![edit.original, edit.patched, edit.previous].some(bytes => bytes !== undefined && sha256(bytes) === hash)) throw new Error(`Unknown edits in ${edit.path}; no files changed`);
+    if (existsSync(safePath(target, stagePath(edit.path)))) throw new Error(`Staged file exists for ${edit.path}; recover it first`);
+    const backup = safePath(target, backupPath(edit.path));
+    if (existsSync(backup) && sha256(readFileSync(backup)) !== sha256(edit.original)) throw new Error(`Changed backup for ${edit.path}`);
+  }
+  mkdirSync(state, { recursive: true });
+  try {
+    for (const edit of edits) {
+      const stage = safePath(target, stagePath(edit.path));
+      durableWrite(stage, command === "apply" ? edit.patched : edit.original, true);
+      staged.push(stage);
+      execFileSync(process.execPath, ["--check", stage], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    }
+    for (const edit of edits) {
+      const backup = safePath(target, backupPath(edit.path));
+      mkdirSync(dirname(backup), { recursive: true });
+      if (!existsSync(backup)) durableWrite(backup, edit.original, true);
+      if (sha256(readFileSync(backup)) !== sha256(edit.original)) throw new Error(`Backup verification failed for ${edit.path}`);
+    }
+    saveManifest(target, manifest);
+    manifest.phase = command === "apply" ? "applying" : "restoring";
+    saveManifest(target, manifest);
+    replacing = true;
+    for (const edit of edits) {
+      const path = safePath(target, edit.path);
+      const hash = sha256(readFileSync(path));
+      if (![edit.original, edit.patched, edit.previous].some(bytes => bytes !== undefined && sha256(bytes) === hash)) throw new Error(`Concurrent edit to ${edit.path}`);
+      replaceFile(safePath(target, stagePath(edit.path)), path);
+      syncDirectory(dirname(path));
+      if (sha256(readFileSync(path)) !== sha256(command === "apply" ? edit.patched : edit.original)) throw new Error(`Replacement verification failed for ${edit.path}`);
+    }
+    manifest.phase = command === "apply" ? "applied" : "restored";
+    saveManifest(target, manifest);
+  } catch (error) {
+    const failures: string[] = [];
+    if (replacing) {
+      // Try every file even if a prior restoration fails. Unknown concurrent
+      // changes are preserved, not overwritten in the name of rollback.
+      for (const edit of edits) {
+        try {
+          const path = safePath(target, edit.path);
+          const hash = sha256(readFileSync(path));
+          if (hash === sha256(edit.original)) continue;
+          if (![edit.patched, edit.previous].some(bytes => bytes !== undefined && sha256(bytes) === hash)) throw new Error("Unknown concurrent edits", { cause: error });
+          const stage = safePath(target, stagePath(edit.path));
+          durableWrite(stage, edit.original);
+          replaceFile(stage, path);
+          syncDirectory(dirname(path));
+          if (sha256(readFileSync(path)) !== sha256(edit.original)) throw new Error("Original hash not restored", { cause: error });
+        } catch (failure) { failures.push(`${edit.path}: ${failure instanceof Error ? failure.message : "restore failed"}`); }
+      }
+      manifest.phase = failures.length ? "rollback-failed" : "restored";
+      try { saveManifest(target, manifest); } catch { failures.push("Could not save recovery phase"); }
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`${reason}${replacing ? failures.length ? `; rollback failures: ${failures.join("; ")}` : "; rollback verified: every original hash restored" : "; no installed files replaced"}`, { cause: error });
+  } finally {
+    for (const path of staged) if (existsSync(path)) unlinkSync(path);
+  }
+}
+
+/** Remove interrupted stages only after every staged file matches audited bytes. */
+function recoverStaging(target: string, inspection: Inspection): void {
+  for (const edit of inspection.edits) {
+    const stage = safePath(target, stagePath(edit.path));
+    if (!existsSync(stage)) continue;
+    const hash = sha256(readFileSync(stage));
+    if (hash !== sha256(edit.original) && hash !== sha256(edit.patched)) throw new Error(`Unknown staged bytes for ${edit.path}; preserve and inspect them`);
+  }
+  for (const edit of inspection.edits) {
+    const stage = safePath(target, stagePath(edit.path));
+    if (existsSync(stage)) unlinkSync(stage);
+  }
+}
+
+export interface Status { target: string; version: string; state: Inspection["state"]; location: string; phase: string; sourceDigest: string; instruction: string }
+/** Inspect an explicit installation or perform its locked, guarded apply/restore. */
+export function runCorePatch(command: Command, explicitTarget: string): Status {
+  if (!commands.includes(command) || !explicitTarget?.trim()) throw new Error("Use status|check|apply|restore --target <explicit-package-root>");
+  const target = realpathSync(resolve(explicitTarget));
+  // Only hash-keyed dependency parsing is reused across calls. Every preflight
+  // rereads and hashes every file, including backups and the manifest.
+  const dependencies = parsedDependencies;
+  let inspection: Inspection;
+  try { inspection = readInspection(target, dependencies); }
+  catch (error) {
+    if (command !== "status") throw error;
+    return { target, version: "unverified", state: "unsupported/drifted", location: join(target, STATE_DIR), phase: "unverified", sourceDigest: patchSourceDigest(), instruction: error instanceof Error ? error.message : String(error) };
+  }
+  const result = (): Status => ({ target, version: PI_VERSION, state: inspection.state, location: join(target, STATE_DIR),
+    phase: inspection.manifest?.phase ?? "none", sourceDigest: inspection.manifest?.sourceDigest ?? patchSourceDigest(),
+    instruction: inspection.state === "interrupted managed" || inspection.state === "legacy thin-bar-only" ? "Close pi, then run restore for this target before apply." : "Close pi before apply or restore. Re-audit any pi upgrade." });
+  if (command === "status") return result();
+  if (command === "check") {
+    if (inspection.state === "interrupted managed" || inspection.state === "legacy thin-bar-only") throw new Error(result().instruction);
+    return result();
+  }
+  if (command === "apply" && (inspection.state === "interrupted managed" || inspection.state === "legacy thin-bar-only")) throw new Error(result().instruction);
+  assertClosed(target, command);
+  if (command === "apply" && inspection.state === "current managed") return result();
+  const lock = safePath(target, lockPath);
+  if (existsSync(lock)) {
+    const recorded: { pid?: unknown } = JSON.parse(readFileSync(lock, "utf8"));
+    if (typeof recorded.pid !== "number" || !Number.isSafeInteger(recorded.pid) || recorded.pid <= 0) throw new Error("Invalid operation lock; preserve it for inspection");
+    let alive = true;
+    try { process.kill(recorded.pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") alive = false; }
+    if (alive) throw new Error(`Patch operation PID ${recorded.pid} may still be running; no files changed`);
+    if (command !== "restore") throw new Error("Interrupted operation; run restore first");
+    unlinkSync(lock);
+  }
+  mkdirSync(safePath(target, STATE_DIR), { recursive: true });
+  durableWrite(lock, JSON.stringify({ pid: process.pid }), true);
+  try {
+    if (command === "restore") recoverStaging(target, inspection);
+    // Repeat the hash preflight after taking the lock. The lock itself marks
+    // the transaction interrupted until its durable final phase is recorded.
+    inspection = readInspection(target, dependencies);
+    transact(target, inspection.edits, command, patchSourceDigest());
+  } finally {
+    unlinkSync(lock);
+    const state = safePath(target, STATE_DIR);
+    if (readdirSync(state).length === 0) rmdirSync(state);
+  }
+  inspection = readInspection(target, dependencies);
+  return result();
+}
+
+/** Apply through the same guarded entry point used by the command-line interface. */
+export function applyCorePatch(target: string): Status { return runCorePatch("apply", target); }
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const [command, flag, target, ...extra] = process.argv.slice(2);
+    if (!commands.includes(command as Command) || flag !== "--target" || !target || extra.length) throw new Error("Use npm run core-patch -- status|check|apply|restore --target <explicit-package-root>");
+    const status = runCorePatch(command as Command, target);
+    console.log(JSON.stringify(status, null, 2));
+    if (status.state === "unsupported/drifted") process.exitCode = 1;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

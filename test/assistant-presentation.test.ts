@@ -1,0 +1,63 @@
+import { it, expect, vi } from "vitest";
+import { stripVTControlCharacters } from "node:util";
+import { Container, Markdown, Text, Spacer, MouseRegion, truncateToWidth, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { AssistantMessageComponent } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js";
+import { getMarkdownTheme, theme, initTheme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
+import { createMarkdownTransform } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/markdown-transform.js";
+import { createAssistantPresenter } from "../patches/runtime/assistant.js";
+
+it("retains native assistant identity, cached thinking, ordered deltas, mouse controls and stop notices", () => {
+  initTheme("dark", false);
+  let markdownRenders = 0;
+  class CountedMarkdown extends Markdown { override render(width: number) { markdownRenders++; return super.render(width); } }
+  const present = createAssistantPresenter({ Container, Markdown: CountedMarkdown, Text, Spacer, MouseRegion, truncateToWidth, getTheme: () => theme, createMarkdownTransform });
+  type Owner = ThisParameterType<typeof present>;
+  const native = new AssistantMessageComponent(undefined, false, getMarkdownTheme());
+  const owner = native as unknown as Owner;
+  owner.updateContent = present;
+  const invalidate = native.invalidate.bind(native);
+  native.invalidate = () => { owner.remoticonInvalidate?.(); invalidate(); };
+  const message = { role: "assistant", content: [{ type: "thinking", thinking: "First thought." }], stopReason: "pending" } as AssistantMessage;
+  present.call(owner, message, true);
+  const plain = (width = 90) => native.render(width).map(stripVTControlCharacters).join("\n");
+  expect(native).toBeInstanceOf(AssistantMessageComponent);
+  expect(plain()).toContain("Reasoning");
+  expect(plain()).toContain("First thought.");
+  const renders = markdownRenders;
+  message.content.push({ type: "text", text: "Answer **one** " + "wide prose 界 ".repeat(12) });
+  present.call(owner, message, true);
+  expect(plain()).toContain("● Answer");
+  expect(markdownRenders).toBe(renders + 1);
+  const answer = message.content[1];
+  const mutateChildren = vi.spyOn(owner.contentContainer.children, "splice");
+  const clearChildren = vi.spyOn(owner.contentContainer, "clear");
+  if (answer.type === "text") answer.text += "more";
+  present.call(owner, message, true);
+  const lines = native.render(90);
+  expect(markdownRenders).toBe(renders + 2);
+  expect(mutateChildren).not.toHaveBeenCalled();
+  expect(clearChildren).not.toHaveBeenCalled();
+  const before = [...lines];
+  native.render(90); native.render(90);
+  expect(lines).toEqual(before);
+  expect(plain().match(/●/g)).toHaveLength(1);
+  for (const row of native.render(20)) expect(visibleWidth(row)).toBeLessThanOrEqual(20);
+  const clicked = native.handleMouse({ type: "click", button: "left", x: 3, y: 1, width: 20, height: native.render(20).length, screenX: 3, screenY: 1, shift: false, alt: false, ctrl: false } satisfies TuiMouseEvent);
+  expect(clicked?.handled).toBe(true);
+  expect(plain()).toContain("Thinking...");
+  expect(plain()).not.toContain("First thought.");
+  native.setHideThinkingBlock(false);
+  expect(plain()).toContain("First thought.");
+  message.content.push({ type: "thinking", thinking: "Later thought." }, { type: "text", text: "Second answer." });
+  present.call(owner, message, true);
+  expect(plain().indexOf("Later thought.")).toBeGreaterThan(plain().indexOf("Answer"));
+  expect(plain().match(/●/g)).toHaveLength(2);
+  present.call(owner, { ...message, stopReason: "stop" }, false);
+  native.invalidate();
+  expect(plain()).toContain("Second answer.");
+  for (const [stopReason, notice] of [["aborted", "Operation aborted"], ["length", "truncated"], ["error", "Error:"]] as const) {
+    present.call(owner, { ...message, stopReason }, false);
+    expect(plain()).toContain(notice);
+  }
+});

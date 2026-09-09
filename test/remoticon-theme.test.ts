@@ -78,12 +78,12 @@ describe("S1: calm-UI colour map", () => {
 
   it("sets the locked colour-role hexes", () => {
     const expected: Record<string, string> = {
-      text: "#d6d6d6",
-      muted: "#8a8a8a",
-      dim: "#6f6f6f", // mockup.html + INTENT; spec's #6f8a8a is a typo
-      error: "#e5695f",
-      success: "#5bc46b",
-      userMessageBg: "#3a3a46",
+      text: "#e8e4dc",
+      muted: "#a4a5ae",
+      dim: "#92949e", // mockup.html + INTENT; spec's #6f8a8a is a typo
+      error: "#e89891",
+      success: "#9fcbb4",
+      userMessageBg: "#24262c",
       userMessageText: "#e8e8ea",
       toolDiffAdded: "#8fe0a6",
       toolDiffRemoved: "#e59b95",

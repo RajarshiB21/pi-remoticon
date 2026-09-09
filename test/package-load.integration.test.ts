@@ -9,38 +9,35 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from "node:fs";
-import { bootPi, repoRoot } from "./helpers/boot-pi.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { bootPi } from "./helpers/boot-pi.js";
+import { makePiCopy, type PiCopy } from "./helpers/patch-harness.js";
+import { applyCorePatch } from "../scripts/apply-core-patch.js";
 
 let home: string;
-let env: Record<string, string>;
+let copy: PiCopy;
+let term: Awaited<ReturnType<typeof bootPi>>;
+const settings = { quietStartup: true, package: true };
 
 describe("package load: pi boots with the pi-remoticon package enabled", () => {
   beforeAll(async () => {
     // A home that enables the package the way the user's settings do, and selects
     // the theme + quietStartup so the full product (theme + header) is exercised.
     home = mkdtempSync(join(tmpdir(), "pi-pkg-home-"));
-    cpSync(join(repoRoot, ".pi-test-home"), home, { recursive: true });
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-    // lastChangelogVersion is stamped by bootPi (live pi VERSION) so an update
-    // never hangs the boot behind pi's changelog screen.
-    writeFileSync(
-      join(home, ".pi", "agent", "settings.json"),
-      JSON.stringify({ quietStartup: true, theme: "remoticon", packages: [repoRoot] }, null, 2)
-    );
-    env = { HOME: home, USERPROFILE: home };
+    copy = makePiCopy();
+    applyCorePatch(copy.pkgDir);
     // cwd = the home (a neutral dir that is NOT the package), matching the real
     // scenario. Generous warm budget for any first-boot package reconciliation.
-    const warm = await bootPi(90000, 30000, [], env, home);
-    await warm.close();
+    term = await bootPi(90000, 30000, [], settings, home, copy.cli);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await term?.close();
     if (home) rmSync(home, { recursive: true, force: true });
+    copy?.cleanup();
   });
 
   it("boots with no extension-load error and rebuilds the header", async () => {
-    const term = await bootPi(30000, 15000, [], env, home);
     try {
       const frame = term.viewport.getText();
       // The exact failure this guards: a non-factory file in extensions/ aborts load.
@@ -50,6 +47,9 @@ describe("package load: pi boots with the pi-remoticon package enabled", () => {
       expect(frame).toContain("Pi can explain its own features");
       // The package's quietStartup took effect (blocks gone).
       expect(frame).not.toContain("[Extensions]");
+      expect(frame).toContain("effort");
+      expect(frame).toContain("auto on");
+      expect(frame).toContain("● fake-model");
     } finally {
       await term.close();
     }

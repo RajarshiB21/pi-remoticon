@@ -1,82 +1,170 @@
-// S3 + S4 — Custom single-line footer with an agent-state status dot.
-//
-// Replaces pi's default footer via ctx.ui.setFooter: a left cluster (dot, model,
-// effort, context, working-state token/cache/cost clusters, provider) that grows
-// left->right, and `cwd (branch)` pinned hard right. The leftmost dot is yellow
-// at rest and green while a turn runs (INTENT.md:86-93; no animation).
-//
-// The old `🐴 ponytail: ⚡ FULL` row was a ctx.ui.setStatus (ponytail
-// index.js:88) that pi's default footer rendered via getExtensionStatuses(). We
-// do NOT render extension statuses here, so that row is gone by omission.
-//
-// All the string-shaping lives in the pure lib/footer-format.ts (unit-tested);
-// this file only wires live pi data into it.
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildFooterLine, type FooterUsage } from "../lib/footer-format.js";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import { buildFooterLines, type FooterUsage } from "../lib/footer-format.js";
+import { Composer } from "../lib/composer.js";
+import { RunState, dotColor, effortRank, rgb } from "../lib/ui-state.js";
 
+interface Bridge { version: number; getState(): { autoCompactionEnabled: boolean } }
+
+/** One owner for footer, editor, elapsed widget and the decoration clock. */
 export default function (pi: ExtensionAPI) {
-  // The dot's resting truth is ctx.isIdle() (INTENT.md:91), read live in render —
-  // so an aborted/errored turn that skips agent_settled can't strand the dot
-  // green; the next repaint self-corrects. The agent_start/agent_settled events
-  // exist only to *trigger* that repaint when the state flips (isIdle changing
-  // does not itself request a render). requestRender is captured from the footer
-  // factory. Handlers are re-registered per session load (pi reloads the module).
-  let requestRender: (() => void) | undefined;
-  pi.on("agent_start", async () => requestRender?.());
-  pi.on("agent_settled", async () => requestRender?.());
+  let run = new RunState();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let render: (() => void) | undefined;
+  let refresh: ((ctx: ExtensionContext, onlyChanged?: boolean) => void) | undefined;
+  let dispose: (() => void) | undefined;
+  let rank = 0;
+  let effort = "unknown";
+  let frameSeconds = 0;
+  const motion = process.env.PI_REMOTICON_MOTION !== "off";
+  const stopClock = () => { if (timer) clearInterval(timer); timer = undefined; };
+  const updateClock = () => {
+    stopClock();
+    frameSeconds = run.active ? run.seconds(performance.now()) : 0;
+    if (render && motion && run.active && !run.waiting) timer = setInterval(() => {
+      frameSeconds = run.seconds(performance.now());
+      render?.();
+    }, 50);
+    render?.();
+  };
+  const selection = (ctx: ExtensionContext) => {
+    effort = ctx.thinkingLevel ?? "unknown";
+    rank = effortRank(ctx.model ? getSupportedThinkingLevels(ctx.model) : [], effort);
+  };
+  const finish = (ctx: ExtensionContext) => {
+    if (!render || !run.active) return;
+    const elapsed = run.seconds(performance.now());
+    run.settle();
+    updateClock();
+    refresh?.(ctx, true);
+    ctx.ui.setWidget("remoticon-finished", [rgb([164, 165, 174], `${run.outcome} · ${elapsed.toFixed(1)}s`)]);
+  };
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
+    dispose?.();
+    run = new RunState();
     if (ctx.mode !== "tui") return;
-
-    // The dot IS the working indicator, so hide pi's built-in "Working" loader
-    // row above the composer — otherwise both show at once during a turn.
-    ctx.ui.setWorkingVisible(false);
-
-    ctx.ui.setFooter((tui, theme, footerData) => {
-      requestRender = () => tui.requestRender();
-      const unsub = footerData.onBranchChange(() => tui.requestRender());
-
+    ctx.ui.setWidget("remoticon-finished", undefined);
+    selection(ctx);
+    ctx.ui.setFooter((tui, _theme, provider) => {
+      const bridge = (provider as typeof provider & { remoticon?: Bridge }).remoticon;
+      if (bridge?.version !== 1 || typeof bridge.getState !== "function") {
+        ctx.ui.setEditorComponent(undefined);
+        ctx.ui.setWorkingVisible(true);
+        return { invalidate() {}, render: (width: number) => [truncateToWidth("Remoticon UI patch unavailable; run core-patch status for this installation", width, "")] };
+      }
+      let modelId = ctx.model?.id ?? "no-model";
+      let cwd = ctx.cwd;
+      let branch = provider.getGitBranch();
+      let ctxPercent: number | null = null;
+      let ctxWindow = 0;
+      let usage: FooterUsage | null = null;
+      let revision = 0;
+      let cacheKey = "";
+      let cached: string[] = [];
+      let disposed = false;
+      let refreshedSession = "";
+      render = () => tui.requestRender();
+      refresh = (current, onlyChanged = false) => {
+        const sessionRevision = `${current.sessionManager.getSessionId()}/${current.sessionManager.getLeafId()}`;
+        if (onlyChanged && sessionRevision === refreshedSession) return;
+        refreshedSession = sessionRevision;
+        modelId = current.model?.id ?? "no-model";
+        cwd = current.cwd;
+        const context = current.getContextUsage();
+        ctxPercent = context?.percent ?? null;
+        ctxWindow = context?.contextWindow ?? current.model?.contextWindow ?? 0;
+        const totals: FooterUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+        let known = false;
+        for (const entry of current.sessionManager.getEntries()) {
+          const u = entry.type === "message" && (entry.message.role === "assistant" || entry.message.role === "toolResult") ? entry.message.usage :
+            (entry.type === "compaction" || entry.type === "branch_summary") ? entry.usage : undefined;
+          if (!u) continue;
+          known = true;
+          totals.input += u.input;
+          totals.output += u.output;
+          totals.cacheRead += u.cacheRead;
+          totals.cacheWrite += u.cacheWrite;
+          totals.cost += u.cost.total;
+        }
+        usage = known ? totals : null;
+        revision++;
+        render?.();
+      };
+      const unsubscribe = provider.onBranchChange(() => { branch = provider.getGitBranch(); revision++; render?.(); });
+      dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        stopClock(); unsubscribe(); render = undefined; refresh = undefined; dispose = undefined;
+        ctx.ui.setWorkingVisible(true);
+        ctx.ui.setEditorComponent(undefined);
+      };
+      refresh(ctx);
+      ctx.ui.setEditorComponent((t, theme, keys) => {
+        const editor = new Composer(t, theme, keys);
+        editor.decoration = () => ({ rank, effort, seconds: frameSeconds, activity: run.activity, moving: motion && run.active && !run.waiting });
+        return editor;
+      });
+      ctx.ui.setWorkingVisible(false);
       return {
-        dispose: unsub,
-        invalidate() {},
+        dispose,
+        invalidate() { revision++; },
         render(width: number): string[] {
-          const working = !ctx.isIdle();
-          // Sum usage over the session branch (assistant messages only), as pi's
-          // own custom-footer example does.
-          let usage: FooterUsage | null = null;
-          if (working) {
-            let input = 0, output = 0, cacheRead = 0, cost = 0;
-            for (const e of ctx.sessionManager.getBranch()) {
-              if (e.type === "message" && e.message.role === "assistant") {
-                const m = e.message as AssistantMessage;
-                input += m.usage.input;
-                output += m.usage.output;
-                cacheRead += m.usage.cacheRead;
-                cost += m.usage.cost.total;
-              }
-            }
-            usage = { input, output, cacheRead, cost };
+          const auto = bridge.getState().autoCompactionEnabled;
+          const state = run.waiting ? "Waiting" : run.active ? run.activity : run.outcome === "Finished" ? "Ready" : run.outcome;
+          const dot = run.active ? dotColor(frameSeconds, run.activity, motion && !run.waiting) :
+            run.outcome === "Failed" ? [232, 152, 145] : run.outcome === "Stopped" ? [164, 165, 174] :
+            run.started >= 0 ? [159, 203, 180] : [185, 165, 232];
+          const key = `${width}/${revision}/${auto}/${state}/${dot.join(",")}`;
+          if (key !== cacheKey) {
+            cached = buildFooterLines({ modelId, cwd, branch, ctxPercent, ctxWindow, usage, auto, state, dot }, width);
+            cacheKey = key;
           }
-
-          const ctxUsage = ctx.getContextUsage();
-          return [
-            buildFooterLine(theme, {
-              working,
-              modelId: ctx.model?.id ?? "no-model",
-              provider: ctx.model?.provider ?? "",
-              effort: ctx.thinkingLevel ?? "",
-              // percent is null before the first response — show 0.0% then.
-              ctxPercent: ctxUsage?.percent ?? 0,
-              ctxWindow: ctx.model?.contextWindow ?? 0,
-              usage,
-              cwd: ctx.cwd,
-              branch: footerData.getGitBranch(),
-              showAuto: true, // v1: auto-compaction on by default (INTENT.md:73)
-            }, width),
-          ];
+          return cached;
         },
       };
     });
   });
+  pi.on("agent_start", (_event, ctx) => {
+    if (!render) return;
+    if (!run.active) ctx.ui.setWidget("remoticon-finished", undefined);
+    run.start(performance.now());
+    updateClock();
+  });
+  pi.on("message_start", (event) => { if (event.message.role === "assistant") run.outcome = "Finished"; });
+  pi.on("message_update", (event) => {
+    const type = event.assistantMessageEvent.type;
+    if (type === "thinking_delta") run.activity = "Reasoning";
+    if (type === "text_delta") run.activity = "Writing";
+    render?.();
+  });
+  pi.on("message_end", (event) => {
+    if (event.message.role !== "assistant") return;
+    if (event.message.stopReason === "aborted") run.outcome = "Stopped";
+    else if (event.message.stopReason === "error" || event.message.stopReason === "length") run.outcome = "Failed";
+  });
+  pi.on("tool_execution_start", (event) => { run.tools.add(event.toolCallId); run.activity = "Running tools"; render?.(); });
+  pi.on("tool_execution_end", (event) => {
+    run.tools.delete(event.toolCallId);
+    if (run.activity === "Running tools" && !run.tools.size) run.activity = "Working";
+    render?.();
+  });
+  pi.on("ui_prompt_start", () => { run.pause(performance.now()); updateClock(); });
+  pi.on("ui_prompt_end", () => { run.resume(performance.now()); updateClock(); });
+  pi.on("agent_settled", (event, ctx) => {
+    if (!render) return;
+    if ((event as typeof event & { remoticonRetryStopped?: boolean }).remoticonRetryStopped) run.outcome = "Stopped";
+    finish(ctx);
+  });
+  pi.on("turn_end", (_event, ctx) => {
+    if (run.active && ctx.isIdle()) finish(ctx);
+    else refresh?.(ctx);
+  });
+  pi.on("agent_end", (_event, ctx) => { if (ctx.isIdle()) finish(ctx); });
+  pi.on("session_compact", (_event, ctx) => refresh?.(ctx));
+  pi.on("session_tree", (_event, ctx) => refresh?.(ctx));
+  pi.on("model_select", (_event, ctx) => { selection(ctx); refresh?.(ctx); });
+  pi.on("thinking_level_select", (event, ctx) => { selection(ctx); effort = event.level; render?.(); });
+  pi.on("session_shutdown", () => dispose?.());
 }
