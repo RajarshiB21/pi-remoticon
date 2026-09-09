@@ -97,6 +97,9 @@ and does not suppress stderr.
 The command rejects linked packages/files, unknown versions, and unknown complete
 file hashes. It stages the audited replacement, runs `node --check`, rechecks the
 destination, and replaces that one file atomically. Repeating setup is harmless.
+After an interrupted setup, rerunning it removes a leftover stage only when its
+whole-file hash matches the audited repair. Unknown staged bytes are preserved
+and refused, with an instruction to inspect them and restore through `npm ci`.
 `npm ci` restores the original test dependency; rerun setup afterward when testing
 on Windows. This repair has no pi patch manifest and changes no pi installation.
 

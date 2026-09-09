@@ -29,13 +29,18 @@ export function repairPtyPackage(packageRoot: string): "applied" | "already appl
   if (pkg.name !== "node-pty" || pkg.version !== "1.1.0") throw new Error("Only audited node-pty 1.1.0 is supported");
   const original = readFileSync(file);
   const fingerprint = hash(original);
+  if (fingerprint !== ORIGINAL_PTY_HASH && fingerprint !== REPAIRED_PTY_HASH) throw new Error("Unknown node-pty bytes; refusing repair");
+  const stage = `${file}.remoticon-next.js`;
+  if (lstatSync(stage, { throwIfNoEntry: false })) {
+    rejectLinks(stage);
+    if (hash(readFileSync(stage)) !== REPAIRED_PTY_HASH) throw new Error("Unknown repair stage; preserve it for inspection, then use npm ci to restore this test dependency");
+    unlinkSync(stage);
+  }
   if (fingerprint === REPAIRED_PTY_HASH) return "already applied";
-  if (fingerprint !== ORIGINAL_PTY_HASH) throw new Error("Unknown node-pty bytes; refusing repair");
   const source = original.toString("utf8");
   if (source.split(ORIGINAL_CLEANUP).length !== 2) throw new Error("node-pty cleanup anchor is not unique");
   const candidate = Buffer.from(source.replace(ORIGINAL_CLEANUP, REPAIRED_CLEANUP));
   if (hash(candidate) !== REPAIRED_PTY_HASH) throw new Error("Repair does not match the audited result");
-  const stage = `${file}.remoticon-next.js`;
   let staged = false;
   try {
     writeFileSync(stage, candidate, { flag: "wx", flush: true });

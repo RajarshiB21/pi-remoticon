@@ -1,5 +1,5 @@
 import { it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync, existsSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,9 +21,23 @@ it("repairs a disposable node-pty once, refuses drift/version/links, and preserv
     writeFileSync(file, original);
     writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "node-pty", version: "1.1.0" }));
     writeFileSync(join(pkg, "unrelated"), "preserve");
+    const stage = `${file}.remoticon-next.js`;
+    const candidate = original.toString("utf8").replace(ORIGINAL_CLEANUP, REPAIRED_CLEANUP);
+    writeFileSync(stage, candidate); // interrupted after staging, before replacement
     expect(repairPtyPackage(pkg)).toBe("applied");
+    expect(existsSync(stage)).toBe(false);
     expect(fingerprint(readFileSync(file))).toBe(REPAIRED_PTY_HASH);
+    writeFileSync(stage, candidate);
     expect(repairPtyPackage(pkg)).toBe("already applied");
+    expect(existsSync(stage)).toBe(false);
+    for (const bytes of [original, Buffer.from(candidate)]) {
+      writeFileSync(file, bytes);
+      writeFileSync(stage, "unknown staged bytes");
+      expect(() => repairPtyPackage(pkg)).toThrow(/Unknown.*stage.*npm ci/);
+      expect(readFileSync(stage, "utf8")).toBe("unknown staged bytes");
+      expect(readFileSync(file)).toEqual(bytes);
+      unlinkSync(stage);
+    }
     expect(readFileSync(join(pkg, "unrelated"), "utf8")).toBe("preserve");
     writeFileSync(file, "unknown bytes");
     expect(() => repairPtyPackage(pkg)).toThrow(/Unknown node-pty bytes/);
