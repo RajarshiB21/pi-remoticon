@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { transact, runCorePatch, readBundle } from "../scripts/apply-core-patch.js";
 import { STATE_DIR, sha256, planEdits, PATCHES, type Edit } from "../scripts/core-patch-plan.js";
 import { makePiCopy } from "./helpers/patch-harness.js";
@@ -20,7 +22,11 @@ function fixture(run: (target: string, edits: Edit[]) => void): void {
 describe("S0 filesystem transaction", () => {
   it("recovers a disposable installation and exercises its patched native tool event path", async () => {
     const copy = makePiCopy();
+    let unicodeProcess: ChildProcess | undefined;
     try {
+      // A harmless owned process makes the real CIM query preserve Unicode argv.
+      unicodeProcess = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "\u2192"], { windowsHide: true, stdio: "ignore" });
+      await once(unicodeProcess, "spawn");
       expect(runCorePatch("check", copy.pkgDir).state).toBe("pristine");
       expect(existsSync(join(copy.pkgDir, STATE_DIR))).toBe(false);
       transact(copy.pkgDir, planEdits(readBundle(copy.pkgDir), [PATCHES[0]]), "apply", sha256("S0 source"));
@@ -35,7 +41,14 @@ describe("S0 filesystem transaction", () => {
       expect(() => runCorePatch("apply", copy.pkgDir)).toThrow(/restore/);
       expect(runCorePatch("restore", copy.pkgDir).state).toBe("pristine");
       expect(runCorePatch("apply", copy.pkgDir).state).toBe("current managed");
-    } finally { copy.cleanup(); }
+    } finally {
+      if (unicodeProcess?.pid && unicodeProcess.exitCode === null && unicodeProcess.signalCode === null) {
+        const exited = once(unicodeProcess, "exit");
+        unicodeProcess.kill();
+        await exited;
+      }
+      copy.cleanup();
+    }
   }, 20000);
 
   it("stages, saves durable originals, applies and restores exact bytes without touching neighboring files", () => fixture((target, edits) => {

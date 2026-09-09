@@ -142,7 +142,8 @@ function processRows(): ProcessRecord[] {
   if (process.platform === "win32") {
     if (!process.env.SystemRoot) throw new Error("SystemRoot is required for process inspection");
     const shell = join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-    const script = "$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine,Name) | ConvertTo-Json -Compress";
+    // OEM encoding can turn Unicode arrows into raw JSON control bytes.
+    const script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine,Name) | ConvertTo-Json -Compress";
     const output = execFileSync(shell, ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     const rows: { ProcessId: number; ParentProcessId: number; ExecutablePath: string | null; CommandLine: string | null; Name: string }[] = JSON.parse(output);
     if (!Array.isArray(rows)) throw new Error("Process query returned no process list");
