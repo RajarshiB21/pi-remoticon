@@ -31,6 +31,9 @@ jobs:
       # ubuntu-latest has python3 + build tools).
       - run: npm ci
 
+      - name: Prepare test terminal dependency
+        run: npm run test:setup
+
       # Cache pi's one-time fd/ripgrep download so the Integration lane stays fast.
       - name: Cache pi test HOME
         uses: actions/cache@v4
@@ -40,6 +43,9 @@ jobs:
 
       - name: Lane 1 — typecheck
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       # Lane 2 (Unit) + Lane 3 (Integration). The 2-minute step timeout is the
       # spec's hard ceiling: if the gate ever crosses it, CI fails — that is a

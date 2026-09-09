@@ -18,5 +18,5 @@
       "@earendil-works/pi-tui/*": ["./node_modules/@earendil-works/pi-tui/*"]
     }
   },
-  "include": ["extensions/**/*.ts", "lib/**/*.ts", "test/**/*.ts"]
+  "include": ["extensions/**/*.ts", "lib/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "patches/runtime/**/*.ts"]
 }

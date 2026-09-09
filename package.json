@@ -20,7 +20,10 @@
     ]
   },
   "scripts": {
+    "core-patch": "tsx scripts/apply-core-patch.ts",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:setup": "tsx scripts/repair-test-pty.ts",
     "test": "vitest run"
   },
   "engines": {
@@ -30,11 +33,15 @@
     "@earendil-works/pi-ai": "^0.85.1",
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "@earendil-works/pi-tui": "^0.85.1",
+    "@eslint/js": "^10.0.1",
     "@termless/vterm": "0.9.1",
     "@types/node": "^26.4.1",
+    "eslint": "^10.10.0",
     "node-pty": "^1.1.0",
     "termless": "0.9.1",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^3.0.0"
   },
   "allowScripts": {

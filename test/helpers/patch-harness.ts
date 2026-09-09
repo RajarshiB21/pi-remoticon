@@ -5,7 +5,10 @@
 import { cpSync, rmSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir, platform } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_TARGET } from "../../scripts/apply-core-patch.js";
+import { fileURLToPath } from "node:url";
+
+// A fixture source, never a default production mutation target.
+export const PRISTINE_SOURCE = fileURLToPath(new URL("../../node_modules/@earendil-works/pi-coding-agent", import.meta.url));
 
 export interface PiCopy {
   /** The copied pi *package* dir (pass to applyCorePatch). */
@@ -30,9 +33,9 @@ export function makePiCopy(): PiCopy {
   // needs it at runtime (node-pty etc.) but the patch never touches it, so a
   // shared read-only link is safe and keeps the two per-run copies fast (well
   // under the CI ceiling). Junction on Windows (no admin needed); dir link else.
-  cpSync(join(DEFAULT_TARGET, "dist"), join(pkgDir, "dist"), { recursive: true });
-  cpSync(join(DEFAULT_TARGET, "package.json"), join(pkgDir, "package.json"));
-  symlinkSync(join(DEFAULT_TARGET, "node_modules"), join(pkgDir, "node_modules"), platform() === "win32" ? "junction" : "dir");
+  cpSync(join(PRISTINE_SOURCE, "dist"), join(pkgDir, "dist"), { recursive: true });
+  cpSync(join(PRISTINE_SOURCE, "package.json"), join(pkgDir, "package.json"));
+  symlinkSync(join(PRISTINE_SOURCE, "node_modules"), join(pkgDir, "node_modules"), platform() === "win32" ? "junction" : "dir");
   return {
     pkgDir,
     cli: join(pkgDir, "dist", "bundle", "cli.js"),

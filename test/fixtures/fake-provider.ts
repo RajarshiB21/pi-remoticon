@@ -10,6 +10,8 @@
 // carrying a fixed usage object — no network.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage, type Context } from "@earendil-works/pi-ai";
+import { setTimeout as delay } from "node:timers/promises";
+import { randomUUID } from "node:crypto";
 
 // A turn's user message triggers a single tool call ONLY when it carries this
 // token. Keeps the default (text-only) turn unchanged for every existing test;
@@ -18,13 +20,13 @@ const TOOLCALL_TRIGGER = "RUNTOOL";
 
 // Does this turn's context ask for — and not yet have — a tool call? The context
 // carries the running conversation (StreamFunction = (model, context, options)).
-// Turn 1: the user text holds the trigger and no toolResult exists yet -> emit an
-// `read` call. Turn 2: pi has run the tool and appended a toolResult -> fall through
-// to plain text, so the agent settles instead of looping forever.
-function wantsToolCall(context?: Context): boolean {
+// Only results after the latest user request settle that scenario. Earlier
+// results must not prevent the next RUNTOOL request from running its own read.
+export function wantsToolCall(context?: Context): boolean {
   const messages = context?.messages ?? [];
-  if (messages.some((m) => m.role === "toolResult")) return false;
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const userIndex = messages.map(m => m.role).lastIndexOf("user");
+  if (messages.slice(userIndex + 1).some(m => m.role === "toolResult")) return false;
+  const lastUser = messages[userIndex];
   const content = lastUser?.content;
   const text =
     typeof content === "string"
@@ -43,7 +45,7 @@ export default function (pi: ExtensionAPI) {
     // non-zero so CH% computes; output non-zero; cost 0 -> $0.000, per the
     // mockup working row). A deliberate hold before `done` keeps the working
     // state on screen long enough for the integration read to catch it.
-    streamSimple: (model, context) => {
+    streamSimple: (model, context, options) => {
       const stream = createAssistantMessageEventStream();
       const out: AssistantMessage = {
         role: "assistant",
@@ -63,35 +65,43 @@ export default function (pi: ExtensionAPI) {
         timestamp: Date.now(),
       };
       (async () => {
-        stream.push({ type: "start", partial: out });
-        if (wantsToolCall(context)) {
-          // One `read` call — read-only, OS-neutral, no shell. Renders a tool row
-          // (the umbrella's ToolExecutionComponent) so the box-death theme change
-          // can be checked against a real tool. pi executes it and re-invokes us.
-          const toolCall = { type: "toolCall" as const, id: "call_1", name: "read", arguments: { path: "package.json" } };
-          out.content.push(toolCall);
-          const argsJson = JSON.stringify(toolCall.arguments);
-          stream.push({ type: "toolcall_start", contentIndex: 0, partial: out });
-          stream.push({ type: "toolcall_delta", contentIndex: 0, delta: argsJson, partial: out });
-          stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: out });
-          await new Promise((r) => setTimeout(r, 300)); // hold the working frame
-          out.stopReason = "toolUse";
+        try {
+          options?.signal?.throwIfAborted();
+          stream.push({ type: "start", partial: out });
+          if (wantsToolCall(context)) {
+            // One `read` call — read-only, OS-neutral, no shell. Renders a tool row
+            // (the umbrella's ToolExecutionComponent) so the box-death theme change
+            // can be checked against a real tool. pi executes it and re-invokes us.
+            const toolCall = { type: "toolCall" as const, id: randomUUID(), name: "read", arguments: { path: "package.json" } };
+            out.content.push(toolCall);
+            const argsJson = JSON.stringify(toolCall.arguments);
+            stream.push({ type: "toolcall_start", contentIndex: 0, partial: out });
+            stream.push({ type: "toolcall_delta", contentIndex: 0, delta: argsJson, partial: out });
+            stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: out });
+            await delay(300, undefined, { signal: options?.signal });
+            out.stopReason = "toolUse";
+            stream.push({ type: "done", reason: out.stopReason, message: out });
+            stream.end();
+            return;
+          }
+          out.content.push({ type: "text", text: "" });
+          stream.push({ type: "text_start", contentIndex: 0, partial: out });
+          const block = out.content[0];
+          if (block.type === "text") {
+            block.text = "ok";
+            stream.push({ type: "text_delta", contentIndex: 0, delta: "ok", partial: out });
+            stream.push({ type: "text_end", contentIndex: 0, content: block.text, partial: out });
+          }
+          await delay(300, undefined, { signal: options?.signal });
+          out.stopReason = "stop";
           stream.push({ type: "done", reason: out.stopReason, message: out });
           stream.end();
-          return;
+          } catch (error) {
+          out.stopReason = options?.signal?.aborted ? "aborted" : "error";
+          out.errorMessage = options?.signal?.aborted ? "Stopped" : String(error);
+          stream.push({ type: "error", reason: out.stopReason, error: out });
+          stream.end();
         }
-        out.content.push({ type: "text", text: "" });
-        stream.push({ type: "text_start", contentIndex: 0, partial: out });
-        const block = out.content[0];
-        if (block.type === "text") {
-          block.text = "ok";
-          stream.push({ type: "text_delta", contentIndex: 0, delta: "ok", partial: out });
-          stream.push({ type: "text_end", contentIndex: 0, content: block.text, partial: out });
-        }
-        await new Promise((r) => setTimeout(r, 300)); // hold the working frame
-        out.stopReason = "stop";
-        stream.push({ type: "done", reason: out.stopReason, message: out });
-        stream.end();
       })();
       return stream;
     },

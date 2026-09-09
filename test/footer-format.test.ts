@@ -7,6 +7,8 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { buildFooterLine, fmtCount, cacheHitPct, hexFg, DOT_IDLE, DOT_WORKING, type FooterLineInput } from "../lib/footer-format.js";
 
 const stubTheme = { fg: (_c: string, t: string) => t } as unknown as Theme;
+// The expression deliberately matches the terminal's ESC control character.
+// eslint-disable-next-line no-control-regex
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 // Fixture inputs chosen to reproduce mockup.html exactly — NOT the live model.
