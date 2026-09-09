@@ -18,7 +18,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const parsedDependencies = new Map<string, string[]>();
 /** Identify the exact maintained planner and delivery source in each manifest. */
 export function patchSourceDigest(): string {
-  return sha256(["core-patch-plan.ts", "apply-core-patch.ts", "runtime-patches.ts", "../patches/runtime/assistant.ts", "../patches/runtime/tool-group.ts"].map(name =>
+  return sha256(["core-patch-plan.ts", "apply-core-patch.ts", "runtime-patches.ts", "../patches/runtime/assistant.ts", "../patches/runtime/tool-group.ts", "../patches/runtime/skill.ts"].map(name =>
     `${name}\n${readFileSync(join(here, name), "utf8")}`).join("\n"));
 }
 

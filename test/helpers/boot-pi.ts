@@ -47,12 +47,12 @@ export function validateTestArgs(args: readonly string[]): void {
   }
 }
 
-export interface BootSettings { quietStartup?: boolean; package?: boolean }
+export interface BootSettings { quietStartup?: boolean; package?: boolean; skill?: boolean }
 
 /** Boot the offline fake model with fresh directories, removed when the terminal closes. */
 export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], settings: BootSettings = {}, cwd?: string, piCli = PI_CLI): Promise<TestTerminal> {
   validateTestArgs(extraArgs);
-  if (Object.keys(settings).some(key => key !== "quietStartup" && key !== "package")) throw new Error("Only fixture startup/package settings are allowed");
+  if (Object.keys(settings).some(key => key !== "quietStartup" && key !== "package" && key !== "skill")) throw new Error("Only fixture startup/package settings are allowed");
   const home = mkdtempSync(join(tmpdir(), "pi-test-"));
   let term: TestTerminal | undefined;
   try {
@@ -60,6 +60,11 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
     // Only populate the owned home. Callers supplying cwd own its fixture files.
     writeFileSync(join(home, "package.json"), '{"name":"offline-tool-fixture","private":true}\n');
     writeFileSync(join(home, "fixture.txt"), "Read-only restoration fixture.\n");
+    const skillDir = join(home, "sample-skill");
+    if (settings.skill) {
+      mkdirSync(skillDir);
+      writeFileSync(join(skillDir, "SKILL.md"), "---\nname: sample-skill\ndescription: Offline presentation fixture.\n---\nSKILL_SOURCE_MUST_STAY_HIDDEN\n");
+    }
     const agentDir = join(home, ".pi", "agent");
     const bin = join(agentDir, "bin");
     mkdirSync(agentDir, { recursive: true });
@@ -79,7 +84,7 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
     term[Symbol.asyncDispose] = term.close;
     await term.spawn([
       process.execPath, piCli, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model",
-      "--tui-mode", "fullscreen", "--offline", "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-approve", ...extraArgs,
+      "--tui-mode", "fullscreen", "--offline", "--no-context-files", "--no-skills", ...(settings.skill ? ["--skill", join(skillDir, "SKILL.md")] : []), "--no-prompt-templates", "--no-approve", ...extraArgs,
     ], { cwd, env: testEnvironment(home) });
     await term.waitFor("pi v", paintMs);
     await term.waitFor("fake-model", paintMs);
