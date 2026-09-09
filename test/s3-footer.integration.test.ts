@@ -10,7 +10,7 @@ describe("fullscreen composer/footer lifecycle", () => {
   beforeAll(() => { copy = makePiCopy(); applyCorePatch(copy.pkgDir); });
   afterAll(() => copy?.cleanup());
   it("streams, edits a draft, changes effort, resizes and settles without losing native controls", async () => {
-    const term = await bootPi(30000, 15000, [], { package: true }, undefined, copy.cli);
+    const term = await bootPi(30000, 15000, [], { package: true, skill: true }, undefined, copy.cli);
     try {
       expect(term.viewport.getText()).toContain("auto on");
       const initialEffort = term.viewport.getText().split("\n").find(row => row.includes(" effort "));
@@ -82,6 +82,30 @@ describe("fullscreen composer/footer lifecycle", () => {
       term.resize(80, 24);
       await term.waitForStable(100, 3000);
       expect(term.viewport.getText()).toContain("› Keep the reasoning");
+      term.press("Ctrl+U");
+      term.resize(120, 36);
+      term.type("SKILLREAD"); term.press("Enter");
+      await term.waitFor("Skill(sample-skill)", 5000);
+      await term.waitFor("Successfully loaded skill", 5000);
+      await term.waitFor("Finished", 5000);
+      for (const [cols, height] of [[120, 36], [80, 24], [60, 30]]) {
+        term.resize(cols, height);
+        term.press("Ctrl+O");
+        await term.waitForStable(100, 3000);
+        expect(term.viewport.getText()).toContain("Skill(sample-skill)");
+        expect(term.viewport.getText()).not.toContain("SKILL_SOURCE_MUST_STAY_HIDDEN");
+      }
+      term.type("/skill:sample-skill user argument retained"); term.press("Enter");
+      await term.waitFor("user argument retained", 5000);
+      await term.waitFor("Finished", 5000);
+      term.press("Ctrl+O");
+      await term.waitForStable(100, 3000);
+      expect(term.viewport.getText()).toContain("Skill(sample-skill)");
+      expect(term.viewport.getText()).not.toContain("SKILL_SOURCE_MUST_STAY_HIDDEN");
+      term.type("/reload"); term.press("Enter");
+      await term.waitForStable(200, 5000);
+      expect(term.viewport.getText()).toContain("Skill(sample-skill)");
+      expect(term.viewport.getText()).not.toContain("SKILL_SOURCE_MUST_STAY_HIDDEN");
     } finally { await term.close(); }
   });
 });

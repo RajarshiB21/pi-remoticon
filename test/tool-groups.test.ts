@@ -1,14 +1,98 @@
 import { it, expect } from "vitest";
 import { stripVTControlCharacters } from "node:util";
-import { Container, Text, truncateToWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Container, Text, truncateToWidth, wrapTextWithAnsi, visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js";
 import { ToolExecutionComponent } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js";
 import { initTheme, theme, getMarkdownTheme } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
+import { createSkillPresenter } from "../patches/runtime/skill.js";
+import { resolveToCwd } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/path-utils.js";
 import { createToolGroups } from "../patches/runtime/tool-group.js";
+
+it("keeps skills compact in order, including late arguments, partial reads and every settlement state", () => {
+  initTheme("dark", false);
+  const skillLines = createSkillPresenter({ getTheme: () => theme, truncateToWidth, wrapTextWithAnsi });
+  const groups = createToolGroups({ Container, AssistantMessageComponent, getTheme: () => theme, truncateToWidth, resolvePath: resolveToCwd, skillLines });
+  const chat = new Container();
+  let hiddenRenders = 0;
+  let nativeClicks = 0;
+  class Row extends Text {
+    toolName = "read"; expanded = false; isPartial = false; cwd = process.cwd();
+    args: Record<string, unknown> = {};
+    result?: { isError: boolean; content: { type: string; text: string }[]; details?: { truncation: { truncated: boolean } } };
+    remoticonChanged?: () => void;
+    setExpanded(value: boolean) { this.expanded = value; }
+    setShowImages() {} setImageWidthCells() {}
+    handleMouse() { nativeClicks++; return { handled: true as const }; }
+    override render(width: number) { if (this.args.path === "custom.md") hiddenRenders++; return super.render(width); }
+  }
+  const add = (path: string, name = "read") => {
+    const row = new Row(path === "custom.md" ? "SKILL_SOURCE_MUST_STAY_HIDDEN" : "ordinary native detail", 0, 0);
+    row.toolName = name; row.args = { path };
+    groups.add(chat, row, 1, [{ filePath: resolveToCwd("custom.md", process.cwd()), name: "declared:skill" }]);
+    return row;
+  };
+  const before = add("ordinary.txt");
+  const skill = add("custom.md");
+  const after = add("references/guide.md");
+  const group = chat.children[0] as InstanceType<typeof groups.Group>;
+  const plain = () => group.render(120).map(stripVTControlCharacters).join("\n");
+  expect(plain()).toContain("Skill(declared:skill)\n   └ Loading skill…");
+  expect(plain().match(/Reading 1 file/g)).toHaveLength(2);
+  expect(group.entries.map(entry => entry.row)).toEqual([before, skill, after]);
+  skill.result = { isError: false, content: [{ type: "text", text: "SKILL_SOURCE_MUST_STAY_HIDDEN" }] };
+  skill.remoticonChanged?.();
+  group.setExpanded(true);
+  group.render(120);
+  expect(hiddenRenders).toBe(0);
+  expect(plain()).not.toContain("SKILL_SOURCE_MUST_STAY_HIDDEN");
+  expect(plain()).toContain("ordinary native detail");
+  for (const [y, line] of group.render(120).entries()) if (line.includes("ordinary native detail")) group.handleMouse({ type: "click", button: "left", x: 2, y, screenX: 2, screenY: y, width: 120, height: 40, shift: false, ctrl: false, alt: false });
+  expect(nativeClicks).toBe(2);
+  expect(skill.result.content[0].text).toBe("SKILL_SOURCE_MUST_STAY_HIDDEN");
+  expect(plain()).toContain("Successfully loaded skill");
+  const skillY = group.render(120).map(stripVTControlCharacters).findIndex(line => line.includes("Skill("));
+  expect(group.handleMouse({ type: "click", button: "left", x: 2, y: skillY, screenX: 2, screenY: skillY, width: 120, height: 40, shift: false, ctrl: false, alt: false })).toBeUndefined();
+  group.setExpanded(false);
+  expect(plain()).not.toContain("SKILL_SOURCE_MUST_STAY_HIDDEN");
+  skill.args.offset = 2; skill.remoticonChanged?.();
+  expect(plain()).toContain("Read part of skill");
+  delete skill.args.offset;
+  skill.result.details = { truncation: { truncated: true } }; skill.remoticonChanged?.();
+  expect(plain()).toContain("Read part of skill");
+  delete skill.result.details;
+  skill.result.content[0].text = "part\n\n[3 more lines in file. Use offset=2 to continue.]"; skill.remoticonChanged?.();
+  expect(plain()).toContain("Read part of skill");
+  skill.result = { isError: true, content: [{ type: "text", text: "Permission denied" }] }; skill.remoticonChanged?.();
+  expect(plain()).toContain("Failed to load skill\n   ! Permission denied");
+  add("folder/SKILL.md");
+  expect(plain()).toContain("Skill(folder)");
+  groups.stop(chat);
+  expect(plain()).toContain("Stopped loading skill");
+  const late = add("unknown.md");
+  late.args.path = "custom.md"; late.remoticonChanged?.();
+  expect(plain().match(/Skill\(declared:skill\)/g)).toHaveLength(2);
+  if (process.platform === "win32") {
+    late.args.path = resolveToCwd("custom.md", process.cwd()).toUpperCase(); late.remoticonChanged?.();
+    expect(plain().match(/Skill\(declared:skill\)/g)).toHaveLength(2);
+  }
+  late.args.path = "ordinary.txt"; late.remoticonChanged?.();
+  expect(plain().match(/Skill\(declared:skill\)/g)).toHaveLength(1);
+  group.invalidate(); group.setOutputPad(3);
+  expect(plain()).toContain("   ● Skill");
+  const replay = new Container();
+  for (const entry of group.entries) groups.add(replay, entry.row, 3, [{ filePath: resolveToCwd("custom.md", process.cwd()), name: "declared:skill" }]);
+  expect(replay.render(120).map(stripVTControlCharacters).join("\n")).toBe(plain());
+  for (const width of [120, 80, 60, 8, 2, 1, 0]) {
+    const lines = skillLines({ name: "very-long-界-é-name".repeat(8), state: "done" }, width, 3);
+    expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
+    if (width > 0 && width < 3) expect(lines).toHaveLength(2);
+    if (width >= 60) expect(lines.map(stripVTControlCharacters).join("\n")).toContain("Successfully loaded skill");
+  }
+});
 
 it("groups original rows across empty turns, splits owned rows at late content and preserves native controls", () => {
   initTheme("dark", false);
-  const groups = createToolGroups({ Container, AssistantMessageComponent, getTheme: () => theme, truncateToWidth });
+  const groups = createToolGroups({ Container, AssistantMessageComponent, getTheme: () => theme, truncateToWidth, resolvePath: resolveToCwd, skillLines: createSkillPresenter({ getTheme: () => theme, truncateToWidth, wrapTextWithAnsi }) });
   const chat = new Container();
   const assistant = () => Object.assign(new AssistantMessageComponent(undefined, false, getMarkdownTheme()), { remoticonVisible: false, remoticonVisibilityChanged: undefined as (() => void) | undefined });
   const first = assistant(); chat.addChild(first);

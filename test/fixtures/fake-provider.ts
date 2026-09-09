@@ -86,6 +86,7 @@ export default function (pi: ExtensionAPI) {
           stream.push({ type: "start", partial: out });
           const latestUser = context?.messages.filter(message => message.role === "user").at(-1);
           const polish = JSON.stringify(latestUser?.content ?? "").includes("POLISH");
+          const skillRun = JSON.stringify(latestUser?.content ?? "").includes("SKILLREAD");
           const restore = JSON.stringify(latestUser?.content ?? "").includes("RESTORE");
           const boundary = JSON.stringify(latestUser?.content ?? "").includes("BOUNDARY");
           const failure = JSON.stringify(latestUser?.content ?? "").includes("FAILURE");
@@ -104,7 +105,7 @@ export default function (pi: ExtensionAPI) {
             }
             stream.push({ type: "thinking_end", contentIndex: 0, content: thinking.thinking, partial: out });
           }
-          if (restore && toolCount === 0 || boundary && toolCount < 2 || failure && toolCount < 2) {
+          if ((restore || skillRun) && toolCount === 0 || boundary && toolCount < 2 || failure && toolCount < 2) {
             if (restore) {
               const commentary = { type: "text" as const, text: "I'll inspect the footer and its rendering path." };
               out.content.push(commentary);
@@ -112,7 +113,7 @@ export default function (pi: ExtensionAPI) {
               stream.push({ type: "text_delta", contentIndex: 1, delta: commentary.text, partial: out });
               stream.push({ type: "text_end", contentIndex: 1, content: commentary.text, partial: out });
             }
-            const calls = restore ? [["read", { path: "package.json" }], ["read", { path: "fixture.txt" }], ["bash", { command: long ? "fixture-long" : "echo restoration-fixture" }]] as const : [["bash", { command: failure && toolCount === 0 ? "fixture-fail" : long ? "fixture-long" : "echo restoration-fixture" }]] as const;
+            const calls = skillRun ? [["read", { path: "package.json" }], ["read", { path: "sample-skill/SKILL.md" }], ["bash", { command: "echo restoration-fixture" }]] as const : restore ? [["read", { path: "package.json" }], ["read", { path: "fixture.txt" }], ["bash", { command: long ? "fixture-long" : "echo restoration-fixture" }]] as const : [["bash", { command: failure && toolCount === 0 ? "fixture-fail" : long ? "fixture-long" : "echo restoration-fixture" }]] as const;
             for (const [name, args] of calls) {
               const toolCall = { type: "toolCall" as const, id: randomUUID(), name, arguments: args };
               const contentIndex = out.content.length;

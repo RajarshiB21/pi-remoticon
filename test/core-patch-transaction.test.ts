@@ -111,7 +111,7 @@ async function assertPatchedToolFlow(chunk: string): Promise<void> {
   native.initTheme("dark", false);
   const setup = () => Object.assign(Object.create(native.InteractiveMode.prototype), {
     isInitialized: true, footer: { invalidate() {} }, ui: { requestRender() {} },
-    runtimeHost: { session: { settingsManager: { getShowImages: () => false, getImageWidthCells: () => 30 }, sessionManager: { getCwd: () => process.cwd() } } },
+    runtimeHost: { session: { resourceLoader: { getSkills: () => ({ skills: [] }) }, settingsManager: { getShowImages: () => false, getImageWidthCells: () => 30 }, sessionManager: { getCwd: () => process.cwd() } } },
     getRegisteredToolDefinition: () => ({ renderCall: () => new Text("native call", 0, 0), renderResult: () => new Text("native result", 0, 0) }),
     toolOutputExpanded: false, pendingTools: new Map(), chatContainer: new Container(),
     checkShutdownRequested: async () => {},

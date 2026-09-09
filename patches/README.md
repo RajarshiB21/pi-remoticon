@@ -131,3 +131,5 @@ The adapted cleanup excerpt is from node-pty, MIT licensed, copyright 2012-2015
 Christopher Jeffrey. Its original MIT license remains in the installed package.
 Original SHA256 is `8636d16b38266112204061a22b135734177c242837982fd3a4055be726efa64a`;
 repaired SHA256 is `4a03e43ab60106322b822397e217340a0882c7e531c2f2110a737e84a7e6a55d`.
+
+Skill loads use permanent compact name/status entries for native reads and explicit skill commands. Ctrl+O never exposes their source in the terminal; stored messages and model inputs remain unchanged. Ordinary tool groups retain native details and are separated at each skill invocation.

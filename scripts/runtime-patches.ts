@@ -27,7 +27,7 @@ export function nativeMethod(files: ReadonlyMap<string, string>, className: stri
       const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
       methods = new Map();
       const visit = (node: ts.Node) => {
-        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && ["AssistantMessageComponent", "ToolExecutionComponent", "InteractiveMode"].includes(node.name.text) && node.initializer && ts.isClassExpression(node.initializer)) {
+        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && ["AssistantMessageComponent", "ToolExecutionComponent", "InteractiveMode", "SkillInvocationMessageComponent"].includes(node.name.text) && node.initializer && ts.isClassExpression(node.initializer)) {
           for (const member of node.initializer.members) if (ts.isMethodDeclaration(member)) {
             const key = `${node.name.text}.${member.name.getText(source)}`;
             if (methods.has(key)) throw new Error(`Duplicate native method ${key}`);
@@ -59,13 +59,20 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
     return { name: `tool-groups-${method}`, find, replace };
   };
   const insertion = "component.setExpanded(this.toolOutputExpanded),this.chatContainer.addChild(component)";
-  const grouped = "component.setExpanded(this.toolOutputExpanded),remoticonTools.add(this.chatContainer,component,this.outputPad)";
+  const grouped = "component.setExpanded(this.toolOutputExpanded),remoticonTools.add(this.chatContainer,component,this.outputPad,this.session.resourceLoader.getSkills().skills)";
   const failure = 'component.updateResult({content:[{type:"text",text:errorMessage2}],isError:!0})';
   return [
     { name: "assistant-content-runs", find: update, replace: `updateContent(message,isStreaming=this.isStreaming){this.remoticonPresenter??=(()=>{${source};return createAssistantPresenter})()({Container,Markdown,Text,MouseRegion,Spacer,truncateToWidth,getTheme:()=>theme,createMarkdownTransform});this.remoticonPresenter.call(this,message,isStreaming)}` },
     { name: "assistant-theme-invalidation", find: invalidate, replace: invalidate.replace("{", "{this.remoticonInvalidate?.();") },
     { name: "assistant-copy-lines", find: render, replace: render.replace("super.render(width)", "[...super.render(width)]") },
-    { name: "tool-group-runtime", find: "InteractiveMode=class", replace: `remoticonTools=(()=>{${runtimeSource("tool-group")};return createToolGroups})()({Container,AssistantMessageComponent,getTheme:()=>theme,truncateToWidth}),InteractiveMode=class` },
+    { name: "tool-group-runtime", find: "InteractiveMode=class", replace: `remoticonSkillLines=(()=>{${runtimeSource("skill")};return createSkillPresenter})()({getTheme:()=>theme,wrapTextWithAnsi,truncateToWidth}),remoticonTools=(()=>{${runtimeSource("tool-group")};return createToolGroups})()({Container,AssistantMessageComponent,getTheme:()=>theme,truncateToWidth,resolvePath:resolveToCwd,skillLines:remoticonSkillLines}),InteractiveMode=class` },
+    { name: "compact-explicit-skill", find: nativeMethod(files, "SkillInvocationMessageComponent", "updateDisplay"), replace: 'updateDisplay(){this.clear()}' },
+    { name: "compact-skill-render-method", find: 'SkillInvocationMessageComponent=class extends Box{', replace: 'SkillInvocationMessageComponent=class extends Box{setOutputPad(padding){this.remoticonOutputPad=padding}render(width){return remoticonSkillLines({name:this.skillBlock.name,state:"done"},width,this.remoticonOutputPad??1)}' },
+    scoped("addMessageToChat", value => {
+      const anchor = "new SkillInvocationMessageComponent(skillBlock,this.getMarkdownThemeWithSettings());";
+      if (value.split(anchor).length !== 2) throw new Error("Expected one explicit skill insertion");
+      return value.replace(anchor, anchor + "component.setOutputPad(this.outputPad);");
+    }),
     { name: "tool-group-observer", find: display, replace: `updateDisplay(){try{${display.slice(display.indexOf("{") + 1, -1)}}finally{this.remoticonChanged?.()}}` },
     scoped("handleEvent", value => {
       if (value.split(insertion).length !== 3) throw new Error("Expected two live tool insertions");
@@ -83,7 +90,7 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
       const padding = "child instanceof AssistantMessageComponent||";
       if (value.split(padding).length !== 2) throw new Error("Expected one output-padding traversal");
       return value.replaceAll(predicate, "(child instanceof ToolExecutionComponent||child instanceof remoticonTools.Group)&&")
-        .replace(padding, "child instanceof remoticonTools.Group||" + padding);
+        .replace(padding, "child instanceof remoticonTools.Group||child instanceof SkillInvocationMessageComponent||" + padding);
     }),
     ...["setToolsExpanded", "toggleThinkingBlockVisibility"].map(method => scoped(method, value => {
       const notice = method === "setToolsExpanded" ? 'this.showStatus(`Tool output: ${expanded?"expanded":"collapsed"}`)' : 'this.showStatus(`Thinking blocks: ${this.hideThinkingBlock?"hidden":"visible"}`)';
