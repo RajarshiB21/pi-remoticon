@@ -34,7 +34,7 @@ export default function (pi: ExtensionAPI) {
   };
   const finish = (ctx: ExtensionContext) => {
     if (!render || !run.active) return;
-    const elapsed = Math.max(0, (performance.now() - run.started) / 1000);
+    const elapsed = run.seconds(performance.now());
     run.settle();
     updateClock();
     refresh?.(ctx, true);

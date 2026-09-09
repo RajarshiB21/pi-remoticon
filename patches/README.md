@@ -60,7 +60,8 @@ States have specific meanings:
   Run restore first. It reconstructs the original, verifies its literal audited
   hash, and saves that verified recovery backup before replacement.
 - `interrupted managed`: incomplete operation or leftover operation lock. Close
-  pi and run restore. A lock belonging to a live process is never removed.
+  pi and run restore. An existing lock belonging to a live process is preserved;
+  completed operations remove their own lock.
 - `unsupported/drifted`: unknown bytes, version, graph, backup, or manifest.
   Preserve the installation and metadata for inspection. Do not delete metadata
   to force application. A pi upgrade needs a fresh audit; an exact-version

@@ -53,6 +53,7 @@ it("caches session totals across clock frames, reads auto state, and disposes ev
     emit("turn_end");
     expect(entries).toHaveBeenCalledTimes(2);
     emit("agent_settled", { remoticonRetryStopped: true });
+    expect(ctx.ui.setWidget).toHaveBeenLastCalledWith("remoticon-finished", [expect.stringContaining("Stopped · 1.0s")]);
     expect(vi.getTimerCount()).toBe(0);
     expect(component!.render(100).join("\n")).toContain("Stopped");
     expect(component!.render(100)[0]).toContain("38;2;164;165;174m●");

@@ -30,6 +30,12 @@ beforeAll(() => {
 });
 
 describe("S0 pure patch plan", () => {
+  it("inserts replacement source literally", () => {
+    const replacement = "$& $$ $` $' $1";
+    expect(planEdits(new Map([["a.js", "before old() after"]]), [{ name: "literal", find: "old()", replace: replacement }])[0].patched)
+      .toBe(`before ${replacement} after`);
+  });
+
   it("classifies pristine, current, older-source, legacy, interrupted and restored bytes", () => {
     const inspect = (files: Map<string, string>, value?: unknown, interrupted = false) =>
       inspectPlan(target, PI_NAME, PI_VERSION, files, digest, value, backups, interrupted);

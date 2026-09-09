@@ -69,7 +69,7 @@ export function planEdits(files: ReadonlyMap<string, string>, entries: readonly 
     }
     if (hits.length !== 1) throw new Error(`${entry.name}: anchor ${hits.length ? "ambiguous" : "not found"} (${hits.length})`);
     const path = hits[0];
-    candidates.set(path, candidates.get(path)!.replace(entry.find, entry.replace));
+    candidates.set(path, candidates.get(path)!.replace(entry.find, () => entry.replace));
   }
   return [...candidates].filter(([path, content]) => content !== files.get(path))
     .map(([path, patched]) => ({ path, original: files.get(path)!, patched }));
