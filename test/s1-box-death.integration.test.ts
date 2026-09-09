@@ -18,7 +18,7 @@
 //   3. the ONLY painted background in the whole frame is the user bar's #24262c
 //      -> the tool box (and anything else) paints nothing: no ground block, no
 //      pi default green/red/purple box, no other fill.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { join } from "node:path";
 import { bootPi, repoRoot } from "./helpers/boot-pi.js";
 
@@ -30,11 +30,6 @@ const eq = (c: { r: number; g: number; b: number } | null, x: { r: number; g: nu
   !!c && c.r === x.r && c.g === x.g && c.b === x.b;
 
 describe("S1: the box is dead", () => {
-  beforeAll(async () => {
-    const warm = await bootPi(60000, 30000, themeArgs);
-    await warm.close();
-  }, 120000);
-
   it("renders a tool call with no painted box — only the user bar carries a background", async () => {
     const term = await bootPi(60000, 20000, [...themeArgs, "List things RUNTOOL now"]);
     try {

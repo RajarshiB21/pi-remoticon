@@ -13,7 +13,7 @@ export const ORIGINAL_HASH = "3d8b2dec97ff9fe4cabef1c69899b00cb8257c625fb0f66c52
 export const THIN_BAR_HASH = "954207c65f4c6d21fa69c5b8d7a9b484d1932c11315dd06949ba797059835fea";
 export const BUNDLE_HASH = "11a2c450cb651aac10d180c3282775aee39fdcb0e423ed7c7a6d64dbd1d2616e";
 export const S1_HASH = "a131e48f5368829aa3fd6763e2120615a0562903d9e573b2e72362e665fb187e";
-export const UI_HASH = "218dda71e5a708645226f7a241fd0a34a930fba5bb77fdc9094144bedb48da5c";
+export const UI_HASH = "2b59443dd6fe117213201279d8152a5ec1aba91bbaef106bb5971f21f848cd0f";
 
 export interface PatchEntry { name: string; find: string; replace: string }
 // MIT excerpts from pi, copyright Mario Zechner. See patches/README.md.

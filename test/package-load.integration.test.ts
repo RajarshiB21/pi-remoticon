@@ -16,6 +16,7 @@ import { applyCorePatch } from "../scripts/apply-core-patch.js";
 
 let home: string;
 let copy: PiCopy;
+let term: Awaited<ReturnType<typeof bootPi>>;
 const settings = { quietStartup: true, package: true };
 
 describe("package load: pi boots with the pi-remoticon package enabled", () => {
@@ -27,17 +28,16 @@ describe("package load: pi boots with the pi-remoticon package enabled", () => {
     applyCorePatch(copy.pkgDir);
     // cwd = the home (a neutral dir that is NOT the package), matching the real
     // scenario. Generous warm budget for any first-boot package reconciliation.
-    const warm = await bootPi(90000, 30000, [], settings, home, copy.cli);
-    await warm.close();
+    term = await bootPi(90000, 30000, [], settings, home, copy.cli);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await term?.close();
     if (home) rmSync(home, { recursive: true, force: true });
     copy?.cleanup();
   });
 
   it("boots with no extension-load error and rebuilds the header", async () => {
-    const term = await bootPi(30000, 15000, [], settings, home, copy.cli);
     try {
       const frame = term.viewport.getText();
       // The exact failure this guards: a non-factory file in extensions/ aborts load.

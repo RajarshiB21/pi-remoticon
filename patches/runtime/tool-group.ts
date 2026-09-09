@@ -24,7 +24,7 @@ export function createToolGroups(d: {
     error: row.result?.isError ? (row.result.content.find(block => block.type === "text")?.text ?? "Tool failed").slice(0, 100).replace(/\s+/g, " ").trim() : "",
   });
   const operations: Record<string, string> = { read: "read", write: "write", edit: "edit", bash: "command", powershell: "command", grep: "search", find: "search", ls: "listing" };
-  const operation = (name: string): string => operations[name] ?? name;
+  const operation = (name: string): string => Object.hasOwn(operations, name) ? operations[name] : name;
   class Group extends d.Container {
     entries: Entry[] = [];
     expanded = false;

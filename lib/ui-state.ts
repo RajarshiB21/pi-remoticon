@@ -7,7 +7,7 @@ export class RunState {
   waiting = false;
   activity: Activity = "Working";
   outcome: Outcome = "Finished";
-  started = 0;
+  started = -1;
   private pausedAt = 0;
   private pausedMs = 0;
   readonly tools = new Set<string>();

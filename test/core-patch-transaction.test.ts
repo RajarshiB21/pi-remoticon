@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
+import { Container, Text } from "@earendil-works/pi-tui";
+import { stripVTControlCharacters } from "node:util";
 import { transact, runCorePatch, readBundle } from "../scripts/apply-core-patch.js";
 import { STATE_DIR, sha256, planEdits, PATCHES, type Edit } from "../scripts/core-patch-plan.js";
 import { makePiCopy } from "./helpers/patch-harness.js";
@@ -15,7 +18,7 @@ function fixture(run: (target: string, edits: Edit[]) => void): void {
 }
 
 describe("S0 filesystem transaction", () => {
-  it("detects an interrupted manifest, refuses apply and recovers a disposable audited installation", () => {
+  it("recovers a disposable installation and exercises its patched native tool event path", async () => {
     const copy = makePiCopy();
     try {
       expect(runCorePatch("check", copy.pkgDir).state).toBe("pristine");
@@ -25,6 +28,7 @@ describe("S0 filesystem transaction", () => {
       expect(runCorePatch("apply", copy.pkgDir).state).toBe("current managed");
       const path = join(copy.pkgDir, STATE_DIR, "manifest.json");
       const manifest = JSON.parse(readFileSync(path, "utf8"));
+      await assertPatchedToolFlow(join(copy.pkgDir, manifest.files[0].path));
       manifest.phase = "applying";
       writeFileSync(path, JSON.stringify(manifest));
       expect(runCorePatch("status", copy.pkgDir).state).toBe("interrupted managed");
@@ -87,3 +91,53 @@ describe("S0 filesystem transaction", () => {
     expect(() => transact(target, edits, "apply", sha256("source"))).toThrow(/Changed backup/);
   }));
 });
+
+/** Reuse the recovery copy to exercise the actual injected handler and observer. */
+async function assertPatchedToolFlow(chunk: string): Promise<void> {
+  const native = await import(pathToFileURL(chunk).href);
+  native.initTheme("dark", false);
+  const setup = () => Object.assign(Object.create(native.InteractiveMode.prototype), {
+    isInitialized: true, footer: { invalidate() {} }, ui: { requestRender() {} },
+    runtimeHost: { session: { settingsManager: { getShowImages: () => false, getImageWidthCells: () => 30 }, sessionManager: { getCwd: () => process.cwd() } } },
+    getRegisteredToolDefinition: () => ({ renderCall: () => new Text("native call", 0, 0), renderResult: () => new Text("native result", 0, 0) }),
+    toolOutputExpanded: false, pendingTools: new Map(), chatContainer: new Container(),
+    checkShutdownRequested: async () => {},
+  });
+  const start = (owner: ReturnType<typeof setup>, id: string) => owner.handleEvent({ type: "tool_execution_start", toolCallId: id, toolName: "read", args: {} });
+  const plain = (component: Container) => component.render(90).map(stripVTControlCharacters).join("\n");
+  for (const [state, expected] of [["pending", "1 read pending"], ["done", "1 read"], ["failed", "1 failed"], ["stopped", "1 stopped"]] as const) {
+    const owner = setup();
+    await start(owner, state);
+    const row = owner.pendingTools.get(state);
+    const group = owner.chatContainer.children[0];
+    expect(row, state).toBeInstanceOf(native.ToolExecutionComponent);
+    expect(group.entries[0].row, state).toBe(row);
+    await owner.handleEvent({ type: "tool_execution_update", toolCallId: state, partialResult: { content: [{ type: "text", text: "partial" }] } });
+    if (state === "done" || state === "failed") await owner.handleEvent({ type: "tool_execution_end", toolCallId: state, isError: state === "failed", result: { content: [{ type: "text", text: state === "failed" ? "broken input" : "ok" }] } });
+    if (state === "stopped") await owner.handleEvent({ type: "agent_settled" });
+    expect(plain(group), state).toContain(expected);
+    if (state === "failed") expect(plain(group)).toContain("broken input");
+    if (state === "done" || state === "failed") expect(owner.pendingTools.has(state)).toBe(false);
+  }
+  const owner = setup();
+  const first = new native.AssistantMessageComponent(undefined, false, native.getMarkdownTheme());
+  owner.chatContainer.addChild(first);
+  await start(owner, "first");
+  const originalFirst = owner.pendingTools.get("first");
+  const second = new native.AssistantMessageComponent(undefined, false, native.getMarkdownTheme());
+  owner.chatContainer.addChild(second);
+  await start(owner, "second");
+  const originalSecond = owner.pendingTools.get("second");
+  const group = owner.chatContainer.children[1];
+  expect(group.entries.map((entry: { row: unknown }) => entry.row)).toEqual([originalFirst, originalSecond]);
+  second.updateContent({ role: "assistant", content: [{ type: "thinking", thinking: "Late reasoning" }], stopReason: "pending" }, true);
+  const split = owner.chatContainer.children[owner.chatContainer.children.indexOf(second) + 1];
+  expect(split.entries[0].row).toBe(owner.pendingTools.get("second"));
+  expect(group.entries[0].row).toBe(owner.pendingTools.get("first"));
+  await owner.handleEvent({ type: "tool_execution_end", toolCallId: "second", isError: true, result: { content: [{ type: "text", text: "failed then continued" }] } });
+  await start(owner, "retry");
+  expect(split.entries.map((entry: { row: unknown }) => entry.row)).toEqual([originalSecond, owner.pendingTools.get("retry")]);
+  expect(plain(split)).toContain("1 failed");
+  expect(plain(split)).toContain("1 read pending");
+  expect(owner.pendingTools.get("first")).toBe(originalFirst);
+}

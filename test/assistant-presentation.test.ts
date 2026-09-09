@@ -1,4 +1,4 @@
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import { stripVTControlCharacters } from "node:util";
 import { Container, Markdown, Text, Spacer, MouseRegion, truncateToWidth, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -30,10 +30,14 @@ it("retains native assistant identity, cached thinking, ordered deltas, mouse co
   expect(plain()).toContain("● Answer");
   expect(markdownRenders).toBe(renders + 1);
   const answer = message.content[1];
+  const mutateChildren = vi.spyOn(owner.contentContainer.children, "splice");
+  const clearChildren = vi.spyOn(owner.contentContainer, "clear");
   if (answer.type === "text") answer.text += "more";
   present.call(owner, message, true);
   const lines = native.render(90);
   expect(markdownRenders).toBe(renders + 2);
+  expect(mutateChildren).not.toHaveBeenCalled();
+  expect(clearChildren).not.toHaveBeenCalled();
   const before = [...lines];
   native.render(90); native.render(90);
   expect(lines).toEqual(before);

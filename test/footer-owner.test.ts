@@ -15,11 +15,12 @@ it("caches session totals across clock frames, reads auto state, and disposes ev
     const unsubscribe = vi.fn();
     const branch = vi.fn(() => "main");
     let auto = true;
+    let leaf = "turn";
     let component: (Component & { dispose?(): void }) | undefined;
     let patched = true;
     const ctx = {
       mode: "tui", cwd: "D:/fixture", model: { id: "model", reasoning: true }, thinkingLevel: "low",
-      sessionManager: { getEntries: entries }, getContextUsage: contextUsage, isIdle: () => false,
+      sessionManager: { getEntries: entries, getSessionId: () => "session", getLeafId: () => leaf }, getContextUsage: contextUsage, isIdle: () => false,
       ui: { setWidget: vi.fn(), setEditorComponent: vi.fn(), setWorkingVisible: vi.fn(),
         setFooter(factory: Parameters<ExtensionContext["ui"]["setFooter"]>[0]) {
           component = factory!({ requestRender: paint } as unknown as TUI, {} as Theme, {
@@ -54,6 +55,13 @@ it("caches session totals across clock frames, reads auto state, and disposes ev
     emit("agent_settled", { remoticonRetryStopped: true });
     expect(vi.getTimerCount()).toBe(0);
     expect(component!.render(100).join("\n")).toContain("Stopped");
+    expect(component!.render(100)[0]).toContain("38;2;164;165;174m●");
+    expect(entries).toHaveBeenCalledTimes(2);
+    emit("agent_start");
+    leaf = "next";
+    emit("agent_settled");
+    expect(entries).toHaveBeenCalledTimes(3);
+    expect(component!.render(100)[0]).toContain("38;2;159;203;180m●");
     emit("agent_start");
     emit("session_shutdown");
     const stoppedPaints = paint.mock.calls.length;

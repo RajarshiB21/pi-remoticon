@@ -32,7 +32,6 @@ it("groups original rows across empty turns, splits owned rows at late content a
   const second = assistant(); chat.addChild(second);
   const b = makeRow(); groups.add(chat, b.row);
   const c = makeRow("write"); groups.add(chat, c.row);
-  const pending = new Map([["a", a.row], ["b", b.row], ["c", c.row]]);
   const group = chat.children.find(child => child instanceof groups.Group)! as InstanceType<typeof groups.Group>;
   expect(group.entries.map(entry => entry.row)).toEqual([a.row, b.row, c.row]);
   const plain = () => group.render(90).map(stripVTControlCharacters).join("\n");
@@ -48,7 +47,6 @@ it("groups original rows across empty turns, splits owned rows at late content a
   const split = chat.children[chat.children.indexOf(second) + 1] as InstanceType<typeof groups.Group>;
   expect(group.entries.map(entry => entry.row)).toEqual([a.row]);
   expect(split.entries.map(entry => entry.row)).toEqual([b.row, c.row]);
-  expect(pending.get("b")).toBe(split.entries[0].row);
   expect(b.native).toBeInstanceOf(ToolExecutionComponent);
   groups.stop(chat);
   expect(split.render(90).map(stripVTControlCharacters).join("\n")).toContain("1 stopped");
@@ -71,4 +69,8 @@ it("groups original rows across empty turns, splits owned rows at late content a
   const before = renders;
   for (let i = 0; i < 20; i++) long.render(90);
   expect(renders).toBe(before);
+  for (const name of ["constructor", "toString", "__proto__"]) {
+    const generic = new Container(); groups.add(generic, makeRow(name).row);
+    expect(generic.render(90).map(stripVTControlCharacters).join("\n")).toContain(`1 ${name} pending`);
+  }
 });

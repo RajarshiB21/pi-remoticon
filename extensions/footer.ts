@@ -12,7 +12,7 @@ export default function (pi: ExtensionAPI) {
   let run = new RunState();
   let timer: ReturnType<typeof setInterval> | undefined;
   let render: (() => void) | undefined;
-  let refresh: ((ctx: ExtensionContext) => void) | undefined;
+  let refresh: ((ctx: ExtensionContext, onlyChanged?: boolean) => void) | undefined;
   let dispose: (() => void) | undefined;
   let rank = 0;
   let effort = "unknown";
@@ -37,7 +37,7 @@ export default function (pi: ExtensionAPI) {
     const elapsed = Math.max(0, (performance.now() - run.started) / 1000);
     run.settle();
     updateClock();
-    refresh?.(ctx);
+    refresh?.(ctx, true);
     ctx.ui.setWidget("remoticon-finished", [rgb([164, 165, 174], `${run.outcome} · ${elapsed.toFixed(1)}s`)]);
   };
 
@@ -64,8 +64,12 @@ export default function (pi: ExtensionAPI) {
       let cacheKey = "";
       let cached: string[] = [];
       let disposed = false;
+      let refreshedSession = "";
       render = () => tui.requestRender();
-      refresh = (current) => {
+      refresh = (current, onlyChanged = false) => {
+        const sessionRevision = `${current.sessionManager.getSessionId()}/${current.sessionManager.getLeafId()}`;
+        if (onlyChanged && sessionRevision === refreshedSession) return;
+        refreshedSession = sessionRevision;
         modelId = current.model?.id ?? "no-model";
         cwd = current.cwd;
         const context = current.getContextUsage();
@@ -109,7 +113,9 @@ export default function (pi: ExtensionAPI) {
         render(width: number): string[] {
           const auto = bridge.getState().autoCompactionEnabled;
           const state = run.waiting ? "Waiting" : run.active ? run.activity : run.outcome === "Finished" ? "Ready" : run.outcome;
-          const dot = run.active ? dotColor(frameSeconds, run.activity, motion && !run.waiting) : run.outcome === "Failed" ? [232, 152, 145] : [185, 165, 232];
+          const dot = run.active ? dotColor(frameSeconds, run.activity, motion && !run.waiting) :
+            run.outcome === "Failed" ? [232, 152, 145] : run.outcome === "Stopped" ? [164, 165, 174] :
+            run.started >= 0 ? [159, 203, 180] : [185, 165, 232];
           const key = `${width}/${revision}/${auto}/${state}/${dot.join(",")}`;
           if (key !== cacheKey) {
             cached = buildFooterLines({ modelId, cwd, branch, ctxPercent, ctxWindow, usage, auto, state, dot }, width);

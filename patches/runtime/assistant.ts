@@ -29,6 +29,7 @@ export function createAssistantPresenter(d: {
 }) {
   interface Record { text: string; signature: string; component: Component; markdown?: Markdown; clear(): void }
   const records = new Map<string, Record>();
+  const spacer = new d.Spacer(1);
   return function update(this: Owner, message: AssistantMessage, streaming = this.isStreaming): void {
     this.lastMessage = message;
     this.isStreaming = streaming;
@@ -105,18 +106,23 @@ export function createAssistantPresenter(d: {
         if (!parts.length) continue;
         const runIndex = thinkingRun++;
         add(`thinking:${start}`, parts.join("\n\n"), "thinking", this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock, runIndex);
-        if (message.content.slice(index + 1).some(content => content.type === "text" && content.text.trim() || content.type === "thinking" && content.thinking.trim())) next.push(new d.Spacer(1));
+        if (message.content.slice(index + 1).some(content => content.type === "text" && content.text.trim() || content.type === "thinking" && content.thinking.trim())) next.push(spacer);
       }
     }
     for (const key of records.keys()) if (!used.has(key)) records.delete(key);
-    if (next.length) next.unshift(new d.Spacer(1));
+    if (next.length) next.unshift(spacer);
     let notice: string | undefined;
     if (message.stopReason === "length") notice = "Response was truncated before completion.";
     else if (!this.hasToolCalls && message.stopReason === "aborted") notice = message.errorMessage && message.errorMessage !== "Request was aborted" ? message.errorMessage : "Operation aborted";
     else if (!this.hasToolCalls && message.stopReason === "error") notice = `Error: ${message.errorMessage || "Unknown error"}`;
     if (notice) next.push(new d.Spacer(1), new d.Text(theme.fg("error", notice), this.outputPad, 0));
-    this.contentContainer.clear();
-    for (const component of next) this.contentContainer.addChild(component);
+    const children = this.contentContainer.children;
+    let start = 0;
+    while (start < children.length && start < next.length && children[start] === next[start]) start++;
+    let oldEnd = children.length;
+    let newEnd = next.length;
+    while (oldEnd > start && newEnd > start && children[oldEnd - 1] === next[newEnd - 1]) { oldEnd--; newEnd--; }
+    if (oldEnd !== start || newEnd !== start) children.splice(start, oldEnd - start, ...next.slice(start, newEnd));
     const visible = next.length > 0;
     if (this.remoticonVisible !== visible) {
       this.remoticonVisible = visible;

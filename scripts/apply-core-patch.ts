@@ -15,6 +15,7 @@ import {
 export type Command = "status" | "check" | "apply" | "restore";
 const commands: Command[] = ["status", "check", "apply", "restore"];
 const here = dirname(fileURLToPath(import.meta.url));
+const parsedDependencies = new Map<string, string[]>();
 /** Identify the exact maintained planner and delivery source in each manifest. */
 export function patchSourceDigest(): string {
   return sha256(["core-patch-plan.ts", "apply-core-patch.ts", "runtime-patches.ts", "../patches/runtime/assistant.ts", "../patches/runtime/tool-group.ts"].map(name =>
@@ -68,7 +69,7 @@ function readUtf8(path: string): string {
 }
 
 /** Read the CLI dependency graph; cache parsing only, never file contents. */
-export function readBundle(target: string, dependencies = new Map<string, string[]>()): Map<string, string> {
+export function readBundle(target: string, dependencies = parsedDependencies): Map<string, string> {
   const files = new Map<string, string>();
   /** Read each reachable file once, including graphs containing import cycles. */
   function read(path: string): void {
@@ -271,9 +272,9 @@ export interface Status { target: string; version: string; state: Inspection["st
 export function runCorePatch(command: Command, explicitTarget: string): Status {
   if (!commands.includes(command) || !explicitTarget?.trim()) throw new Error("Use status|check|apply|restore --target <explicit-package-root>");
   const target = realpathSync(resolve(explicitTarget));
-  // Only dependency parsing is reused within this invocation. Every preflight
+  // Only hash-keyed dependency parsing is reused across calls. Every preflight
   // rereads and hashes every file, including backups and the manifest.
-  const dependencies = new Map<string, string[]>();
+  const dependencies = parsedDependencies;
   let inspection: Inspection;
   try { inspection = readInspection(target, dependencies); }
   catch (error) {

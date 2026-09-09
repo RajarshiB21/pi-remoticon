@@ -77,6 +77,10 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
       if (value.split(insertion).length !== 2) throw new Error("Expected one replay tool insertion");
       return value.replace(insertion, grouped).replace(failure, `(component.remoticonStopped=message.stopReason==="aborted",${failure})`);
     }),
-    scoped("showSettingsSelector", value => value.replaceAll("child instanceof ToolExecutionComponent&&", "(child instanceof ToolExecutionComponent||child instanceof remoticonTools.Group)&&")),
+    scoped("showSettingsSelector", value => {
+      const predicate = "child instanceof ToolExecutionComponent&&";
+      if (value.split(predicate).length !== 3) throw new Error("Expected two image-setting traversals");
+      return value.replaceAll(predicate, "(child instanceof ToolExecutionComponent||child instanceof remoticonTools.Group)&&");
+    }),
   ];
 }

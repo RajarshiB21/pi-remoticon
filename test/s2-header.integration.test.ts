@@ -4,7 +4,7 @@
 // only (our deterministic renderer, no model text).
 //
 // The helper writes quietStartup into fresh settings for each boot.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { join } from "node:path";
 import { bootPi, repoRoot } from "./helpers/boot-pi.js";
 
@@ -12,15 +12,15 @@ const HEADER = join(repoRoot, "extensions", "header.ts");
 const headerArgs = ["-e", HEADER];
 
 const settings = { quietStartup: true };
+let term: Awaited<ReturnType<typeof bootPi>>;
 
 describe("S2: custom header (quietStartup + rebuild)", () => {
   beforeAll(async () => {
-    const warm = await bootPi(60000, 30000, headerArgs, settings);
-    await warm.close();
+    term = await bootPi(60000, 30000, headerArgs, settings);
   });
+  afterAll(async () => { await term?.close(); });
 
   it("shows the kept header lines and drops the resource blocks", async () => {
-    const term = await bootPi(15000, 15000, headerArgs, settings);
     try {
       const frame = term.viewport.getText();
       // Kept lines (proves the header was rebuilt under quietStartup).
