@@ -70,8 +70,12 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
     { name: "compact-skill-render-method", find: 'SkillInvocationMessageComponent=class extends Box{', replace: 'SkillInvocationMessageComponent=class extends Box{setOutputPad(padding){this.remoticonOutputPad=padding}render(width){return remoticonSkillLines({name:this.skillBlock.name,state:"done"},width,this.remoticonOutputPad??1)}' },
     scoped("addMessageToChat", value => {
       const anchor = "new SkillInvocationMessageComponent(skillBlock,this.getMarkdownThemeWithSettings());";
-      if (value.split(anchor).length !== 2) throw new Error("Expected one explicit skill insertion");
-      return value.replace(anchor, anchor + "component.setOutputPad(this.outputPad);");
+      const before = "if(component.setExpanded(this.toolOutputExpanded),this.chatContainer.addChild(component),skillBlock.userMessage){this.chatContainer.addChild(new Spacer(1));";
+      const after = "this.chatContainer.addChild(userComponent)}}else{";
+      if ([anchor, before, after].some(part => value.split(part).length !== 2)) throw new Error("Expected one explicit skill insertion");
+      return value.replace(anchor, anchor + "component.setOutputPad(this.outputPad);")
+        .replace(before, "component.setExpanded(this.toolOutputExpanded);if(skillBlock.userMessage){")
+        .replace(after, "this.chatContainer.addChild(userComponent),this.chatContainer.addChild(new Spacer(1))}this.chatContainer.addChild(component)}else{");
     }),
     { name: "tool-group-observer", find: display, replace: `updateDisplay(){try{${display.slice(display.indexOf("{") + 1, -1)}}finally{this.remoticonChanged?.()}}` },
     scoped("handleEvent", value => {
