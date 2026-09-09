@@ -39,7 +39,7 @@ export function createToolGroups(d: {
     find: { done: "ran", pending: "running", noun: "search" },
     ls: { done: "listed", pending: "listing", noun: "directory" },
   };
-  const plural = (noun: string, count: number) => count === 1 ? noun : noun === "directory" ? "directories" : `${noun}s`;
+  const plural = (noun: string, count: number) => count === 1 ? noun : noun === "directory" ? "directories" : noun === "search" ? "searches" : `${noun}s`;
   class Group extends d.Container {
     entries: Entry[] = [];
     expanded = false;

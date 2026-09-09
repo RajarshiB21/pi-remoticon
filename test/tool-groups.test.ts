@@ -102,4 +102,10 @@ it("groups original rows across empty turns, splits owned rows at late content a
   expect(summary.expanded).toBe(false);
   expect(summary.handleMouse({ ...event, y: 0 })?.handled).toBe(true);
   expect(summary.expanded).toBe(true);
+  const operations = new Container();
+  for (const name of ["grep", "find", "ls", "ls"]) {
+    const tool = makeRow(name); groups.add(operations, tool.row);
+    tool.native.updateResult({ content: [{ type: "text", text: "ok" }], isError: false });
+  }
+  expect(operations.render(120).map(stripVTControlCharacters).join("\n")).toContain("Ran 2 searches · listed 2 directories");
 });
