@@ -3,9 +3,10 @@
 The supported desktop target is Windows with pi in VS Code's integrated terminal.
 The existing Linux CI runner validates the tests; macOS support is outside scope.
 
-This patch removes user-message vertical padding and supplies the read-only
-auto-compaction state used by the composer/footer extension. It also reports
-retry cancellation on the existing settlement event so the footer says Stopped.
+This patch adds streaming answer markers, thinking labels and collapsible groups
+of native tool rows. It preserves the thin user bar and supplies the read-only
+auto-compaction state used by the composer/footer extension. It reports retry
+cancellation on the existing settlement event so the footer says Stopped.
 It targets audited npm pi **0.85.1**. Model execution, retry behavior, credentials,
 settings and stored sessions remain native.
 
@@ -43,15 +44,15 @@ npm run core-patch -- restore --target "<package-root>"
 npm run core-patch -- status --target "<package-root>"
 ```
 
-Restore returns the original user-message padding. Reopen pi to inspect it, close
-pi again, then run `apply` to restore the thin bar. Backups remain available after
+Restore returns the original pi interface. Reopen pi to inspect it, close
+pi again, then run `apply` to restore the UI patch. Backups remain available after
 restore under `<package-root>/.pi-remoticon-patch/backups`; the manifest stays at
 `<package-root>/.pi-remoticon-patch/manifest.json` with phase `restored`.
 
 States have specific meanings:
 
 - `pristine`: audited original files, optionally with a completed restore record.
-- `current managed`: audited thin-bar files and a manifest matching this source.
+- `current managed`: audited UI patch files and a manifest matching this source.
 - `older managed`: a supported earlier revision or a different recorded source
   digest. Apply rebuilds from verified original bytes and records the previous
   file fingerprint before replacement, so interrupted upgrades can be recovered.
@@ -77,9 +78,14 @@ preserved. Interrupted states must be recovered before a new apply.
 ## Maintained source and attribution
 
 Pure validation and edits live in `scripts/core-patch-plan.ts`; filesystem and
-process operations live in `scripts/apply-core-patch.ts`. The literal original and
+process operations live in `scripts/apply-core-patch.ts`. Native method anchors
+and factory compilation live in `scripts/runtime-patches.ts`; maintained
+presentation code lives in `patches/runtime/`. The literal original and
 legacy patched hashes are retained independently of the current definitions.
-The earlier thin-bar revision remains supported for guarded upgrade and restore.
+The earlier thin-bar and composer/footer revisions remain supported for guarded
+upgrade and restore. Groups retain native tool instances and custom renderers;
+collapsed groups cache their summary without rendering hidden children. Thinking
+and answer runs retain native Markdown and cache unchanged content.
 
 The UI extension uses one 50 ms decoration clock during a run, paused for blocking
 prompts and stopped at settlement. Set `PI_REMOTICON_MOTION=off` before starting pi

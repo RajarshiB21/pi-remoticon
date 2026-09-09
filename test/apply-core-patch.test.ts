@@ -2,10 +2,11 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { realpathSync } from "node:fs";
 import { readBundle } from "../scripts/apply-core-patch.js";
 import {
-  inspectPlan, planEdits, sha256, PATCHES, PI_NAME, PI_VERSION, CLI_PATH,
+  inspectPlan as inspectPlanPure, planEdits, sha256, PATCHES, PI_NAME, PI_VERSION, CLI_PATH,
   ORIGINAL_HASH, THIN_BAR_HASH, UI_HASH, affectedProcesses, type Manifest, type ProcessRecord,
 } from "../scripts/core-patch-plan.js";
 import { PRISTINE_SOURCE } from "./helpers/patch-harness.js";
+import { runtimePatches } from "../scripts/runtime-patches.js";
 
 const target = realpathSync(PRISTINE_SOURCE);
 const digest = sha256("test source");
@@ -13,10 +14,14 @@ let pristine: Map<string, string>;
 let patched: Map<string, string>;
 let backups: Map<string, string>;
 let manifest: Manifest;
+let definitions: typeof PATCHES;
+const inspectPlan: typeof inspectPlanPure = (target, name, version, files, digest, manifest, backups, interrupted) =>
+  inspectPlanPure(target, name, version, files, digest, manifest, backups, interrupted, definitions);
 beforeAll(() => {
   // Parse the real audited dependency graph once; pure cases reuse the bytes.
   pristine = readBundle(target);
-  const edits = planEdits(pristine);
+  definitions = [...PATCHES, ...runtimePatches(pristine)];
+  const edits = planEdits(pristine, definitions);
   patched = new Map(pristine);
   for (const edit of edits) patched.set(edit.path, edit.patched);
   backups = new Map(edits.map(edit => [edit.path, edit.original]));

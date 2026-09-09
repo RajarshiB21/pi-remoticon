@@ -68,6 +68,9 @@ export default function (pi: ExtensionAPI) {
           stream.push({ type: "start", partial: out });
           const latestUser = context?.messages.filter(message => message.role === "user").at(-1);
           const polish = JSON.stringify(latestUser?.content ?? "").includes("POLISH");
+          const groupRun = JSON.stringify(latestUser?.content ?? "").includes("GROUPTOOLS");
+          const latestIndex = context.messages.lastIndexOf(latestUser!);
+          const toolCount = context.messages.slice(latestIndex + 1).filter(message => message.role === "toolResult").length;
           if (polish && !wantsToolCall(context)) {
             const thinking = { type: "thinking" as const, thinking: "" };
             out.content.push(thinking);
@@ -79,7 +82,7 @@ export default function (pi: ExtensionAPI) {
             }
             stream.push({ type: "thinking_end", contentIndex: 0, content: thinking.thinking, partial: out });
           }
-          if (wantsToolCall(context)) {
+          if (wantsToolCall(context) || groupRun && toolCount < 2) {
             // One `read` call — read-only, OS-neutral, no shell. Renders a tool row
             // (the umbrella's ToolExecutionComponent) so the box-death theme change
             // can be checked against a real tool. pi executes it and re-invokes us.

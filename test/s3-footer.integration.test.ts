@@ -19,6 +19,7 @@ describe("fullscreen composer/footer lifecycle", () => {
       await term.waitFor("Inspecting the fixture", 5000);
       term.type("draft remains");
       await term.waitFor("A full-width answer", 5000);
+      expect(term.viewport.getText()).toContain("● A full-width answer");
       expect(term.viewport.getText()).toContain("draft remains");
       term.resize(60, 30);
       await term.waitFor("Finished", 5000);
@@ -39,6 +40,16 @@ describe("fullscreen composer/footer lifecycle", () => {
       await term.waitFor("effort", 5000);
       await term.waitForStable(200, 5000);
       expect(term.viewport.getText()).not.toContain("Stopped ·");
+      term.type("GROUPTOOLS"); term.press("Enter");
+      await term.waitFor("2 reads", 5000);
+      await term.waitFor("Finished", 5000);
+      term.press("Ctrl+O");
+      await term.waitFor("package.json", 5000);
+      term.press("Ctrl+O");
+      await term.waitFor("▸ 2 reads", 5000);
+      term.type("/reload"); term.press("Enter");
+      await term.waitForStable(200, 5000);
+      await term.waitFor("▸ 2 reads", 5000);
     } finally { await term.close(); }
   });
 });

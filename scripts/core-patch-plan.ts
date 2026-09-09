@@ -12,7 +12,8 @@ export const STATE_DIR = ".pi-remoticon-patch";
 export const ORIGINAL_HASH = "3d8b2dec97ff9fe4cabef1c69899b00cb8257c625fb0f66c52f4d9914a6b4232";
 export const THIN_BAR_HASH = "954207c65f4c6d21fa69c5b8d7a9b484d1932c11315dd06949ba797059835fea";
 export const BUNDLE_HASH = "11a2c450cb651aac10d180c3282775aee39fdcb0e423ed7c7a6d64dbd1d2616e";
-export const UI_HASH = "a131e48f5368829aa3fd6763e2120615a0562903d9e573b2e72362e665fb187e";
+export const S1_HASH = "a131e48f5368829aa3fd6763e2120615a0562903d9e573b2e72362e665fb187e";
+export const UI_HASH = "218dda71e5a708645226f7a241fd0a34a930fba5bb77fdc9094144bedb48da5c";
 
 export interface PatchEntry { name: string; find: string; replace: string }
 // MIT excerpts from pi, copyright Mario Zechner. See patches/README.md.
@@ -89,8 +90,8 @@ function validateManifest(value: unknown, target: string, edits: readonly Edit[]
     if (!record || typeof record !== "object" || paths.has(record.path)) throw new Error("Duplicate or invalid manifest target");
     paths.add(record.path);
     const edit = edits.find(e => e.path === record.path);
-    if (!edit || record.originalHash !== ORIGINAL_HASH || ![THIN_BAR_HASH, UI_HASH].includes(record.patchedHash) ||
-        record.previousHash !== undefined && ![THIN_BAR_HASH, UI_HASH, ORIGINAL_HASH].includes(record.previousHash)) {
+    if (!edit || record.originalHash !== ORIGINAL_HASH || ![THIN_BAR_HASH, S1_HASH, UI_HASH].includes(record.patchedHash) ||
+        record.previousHash !== undefined && ![THIN_BAR_HASH, S1_HASH, UI_HASH, ORIGINAL_HASH].includes(record.previousHash)) {
       throw new Error("Unsupported manifest file or historical fingerprint");
     }
   }
@@ -101,7 +102,7 @@ function validateManifest(value: unknown, target: string, edits: readonly Edit[]
 export function inspectPlan(
   target: string, name: unknown, version: unknown, files: ReadonlyMap<string, string>,
   sourceDigest: string, manifestValue?: unknown, backups: ReadonlyMap<string, string> = new Map(),
-  interrupted = false,
+  interrupted = false, entries: readonly PatchEntry[] = PATCHES,
 ): Inspection {
   if (!target) throw new Error("An explicit target is required");
   if (name !== PI_NAME || version !== PI_VERSION) throw new Error(`Only ${PI_NAME} ${PI_VERSION} is audited; re-audit upgrades`);
@@ -110,7 +111,7 @@ export function inspectPlan(
   const modified: string[] = [];
   for (const [path, content] of files) {
     const hash = sha256(content);
-    if ([THIN_BAR_HASH, UI_HASH].includes(hash)) {
+    if ([THIN_BAR_HASH, S1_HASH, UI_HASH].includes(hash)) {
       const restored = hash === THIN_BAR_HASH ? content.replace(PATCHES[0].replace, PATCHES[0].find) : backups.get(path);
       if (restored === undefined) throw new Error("Missing original backup for managed UI patch");
       if (sha256(restored) !== ORIGINAL_HASH) throw new Error("Legacy original recovery failed");
@@ -121,7 +122,7 @@ export function inspectPlan(
   const fingerprints = [...pristine].map(([path, bytes]) => [path, sha256(bytes)])
     .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   if (sha256(JSON.stringify(fingerprints)) !== BUNDLE_HASH) throw new Error("Unrecorded whole-file hash or bundled dependency graph drift");
-  const edits = planEdits(pristine);
+  const edits = planEdits(pristine, entries);
   if (edits.length !== 1 || sha256(edits[0].original) !== ORIGINAL_HASH || sha256(edits[0].patched) !== UI_HASH) {
     throw new Error("Patch definitions no longer match the audited fingerprints");
   }

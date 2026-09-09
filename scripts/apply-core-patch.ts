@@ -6,8 +6,9 @@ import { dirname, join, resolve, relative, isAbsolute, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import ts from "typescript";
+import { runtimePatches } from "./runtime-patches.js";
 import {
-  CLI_PATH, STATE_DIR, PI_VERSION, sha256, inspectPlan, affectedProcesses,
+  CLI_PATH, STATE_DIR, PI_VERSION, PATCHES, sha256, inspectPlan, affectedProcesses,
   type Edit, type Manifest, type Inspection, type ProcessRecord,
 } from "./core-patch-plan.js";
 
@@ -16,7 +17,7 @@ const commands: Command[] = ["status", "check", "apply", "restore"];
 const here = dirname(fileURLToPath(import.meta.url));
 /** Identify the exact maintained planner and delivery source in each manifest. */
 export function patchSourceDigest(): string {
-  return sha256(["core-patch-plan.ts", "apply-core-patch.ts"].map(name =>
+  return sha256(["core-patch-plan.ts", "apply-core-patch.ts", "runtime-patches.ts", "../patches/runtime/assistant.ts", "../patches/runtime/tool-group.ts"].map(name =>
     `${name}\n${readFileSync(join(here, name), "utf8")}`).join("\n"));
 }
 
@@ -103,9 +104,11 @@ function readInspection(target: string, dependencies: Map<string, string[]>): In
     const backup = safePath(target, backupPath(path));
     if (existsSync(backup)) backups.set(path, readUtf8(backup));
   }
+  const pristine = new Map([...files].map(([path, content]) => [path, backups.get(path) ?? content]));
   return inspectPlan(target, pkg.name, pkg.version, files, patchSourceDigest(), manifest, backups,
     existsSync(safePath(target, lockPath)) || existsSync(state) && manifest === undefined ||
-    existsSync(safePath(target, `${manifestPath}.next`)) || [...files.keys()].some(path => existsSync(safePath(target, stagePath(path)))));
+    existsSync(safePath(target, `${manifestPath}.next`)) || [...files.keys()].some(path => existsSync(safePath(target, stagePath(path)))),
+    [...PATCHES, ...runtimePatches(pristine)]);
 }
 
 /** Flush directory entries where the platform supports opening directories. */
