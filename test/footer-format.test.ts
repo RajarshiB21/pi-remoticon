@@ -14,11 +14,12 @@ const plain = (s: string) => stripVTControlCharacters(s);
 
 describe("two-row footer and decoration", () => {
   it("formats roots, small costs and the approved compact fields", () => {
-    for (const [cost, expected] of [[0, "$0.00"], [0.04, "$0.04"], [0.002, "$0.002"], [0.0001, "$0.0001"], [0.00001, "<$0.0001"]] as const) {
+    for (const [cost, expected] of [[0, "$0.00"], [0.04, "$0.04"], [0.002, "$0.002"], [0.001234, "$0.001"], [0.0001, "$0.0001"], [0.00001, "<$0.0001"]] as const) {
       const line = plain(buildFooterLines({ ...input, ctxPercent: 18, usage: { ...input.usage!, cost } }, 120)[1]);
       expect(line).toContain(`18% context · auto off / ↑127 ↓97 ${expected}`);
+      expect(line.split(/\s+/)).toContain(expected);
     }
-    for (const cwd of ["D:\\", "/", "\\\\server\\share\\"]) {
+    for (const cwd of ["D:\\", "C:/", "/", "\\\\server\\share\\"]) {
       expect(plain(buildFooterLines({ ...input, cwd, branch: null }, 120)[1]).trimEnd()).toMatch(new RegExp(cwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$"));
     }
   });

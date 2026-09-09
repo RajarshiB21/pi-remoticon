@@ -57,6 +57,7 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
   let term: TestTerminal | undefined;
   try {
     cwd ??= home;
+    // Only populate the owned home. Callers supplying cwd own its fixture files.
     writeFileSync(join(home, "package.json"), '{"name":"offline-tool-fixture","private":true}\n');
     writeFileSync(join(home, "fixture.txt"), "Read-only restoration fixture.\n");
     const agentDir = join(home, ".pi", "agent");

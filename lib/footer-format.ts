@@ -34,7 +34,7 @@ export function buildFooterLines(d: FooterInput, width: number): string[] {
   const cost = usage ? costText(usage.cost) : "";
   const paths = /^[a-z]:|\\/i.test(d.cwd) ? win32 : posix;
   const root = paths.parse(d.cwd).root;
-  const name = paths.normalize(d.cwd) === root ? root : paths.basename(d.cwd);
+  const name = paths.normalize(d.cwd) === paths.normalize(root) ? root : paths.basename(d.cwd);
   const directory = muted(d.branch ? `${name} · ${d.branch}` : name);
   const parts = [tokens, cost ? muted(cost) : ""].filter(Boolean);
   const usageLine = () => context + (parts.length ? " / " + parts.join(" ") : "");
