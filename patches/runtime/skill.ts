@@ -15,9 +15,11 @@ export function createSkillPresenter(d: { getTheme(): Theme; wrapTextWithAnsi: t
     const clean = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
     const color = skill.state === "done" ? "success" : skill.state === "failed" ? "error" : skill.state === "pending" ? "accent" : "muted";
     const title = `${theme.bold("Skill")}(${clean(skill.name)})`;
+    const status = skill.state === "pending" ? "Loading skill…" : skill.state === "failed" ? "Failed to load skill" : skill.state === "stopped" ? "Stopped loading skill" : skill.partial ? "Read part of skill" : "Successfully loaded skill";
+    // Below three cells the hanging indent would hide every text character.
+    if (width < 3) return [d.truncateToWidth(title, width, ""), d.truncateToWidth(theme.fg("muted", status), width, "")];
     const lines = d.wrapTextWithAnsi(title, Math.max(1, width - indent.length)).map((line, index) =>
       d.truncateToWidth((index ? indent : pad + theme.fg(color, "●") + " ") + line, width, ""));
-    const status = skill.state === "pending" ? "Loading skill…" : skill.state === "failed" ? "Failed to load skill" : skill.state === "stopped" ? "Stopped loading skill" : skill.partial ? "Read part of skill" : "Successfully loaded skill";
     for (const line of d.wrapTextWithAnsi(`└ ${status}`, Math.max(1, width - indent.length))) lines.push(d.truncateToWidth(indent + theme.fg("muted", line), width, ""));
     if (skill.state === "failed" && skill.error) lines.push(d.truncateToWidth(indent + theme.fg("error", `! ${clean(skill.error).slice(0, 100)}`), width, ""));
     return lines;

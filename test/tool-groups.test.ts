@@ -85,6 +85,7 @@ it("keeps skills compact in order, including late arguments, partial reads and e
   for (const width of [120, 80, 60, 8, 2, 1, 0]) {
     const lines = skillLines({ name: "very-long-界-é-name".repeat(8), state: "done" }, width, 3);
     expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
+    if (width > 0 && width < 3) expect(lines).toHaveLength(2);
     if (width >= 60) expect(lines.map(stripVTControlCharacters).join("\n")).toContain("Successfully loaded skill");
   }
 });
