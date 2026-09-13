@@ -25,7 +25,7 @@ export function validateTargetUrl(url: string): Error | null {
 	if (parsed.username || parsed.password) {
 		return new Error("target URL embeds credentials");
 	}
-	const host = parsed.hostname.toLowerCase();
+	const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
 	const loopbackAllowed = process.env.PI_RESEARCH_TEST_ALLOW_LOOPBACK === "1";
 	if (host === "" || host === "." || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
 		if (!loopbackAllowed) return new Error(`target host ${JSON.stringify(host)} is not public`);
@@ -111,8 +111,40 @@ export function validateCaptureXhr(pattern: unknown): Error | null {
 	return null;
 }
 
+/**
+ * Expand an IPv6 literal to eight lowercase groups without leading zeros.
+ * Returns null when the text is not an IPv6 literal. Compressed and full
+ * spellings agree, so `::ffff:7f00:1` and `0:0:0:0:0:ffff:7f00:1` both match.
+ */
+function expandIpv6(text: string): string[] | null {
+	const bare = text.split("%")[0]!.toLowerCase();
+	if (!/^[0-9a-f:]+$/.test(bare) || !bare.includes(":")) return null;
+	const compressed = bare.split("::");
+	if (compressed.length > 2) return null;
+	const headGroups = compressed[0] === "" ? [] : compressed[0]!.split(":");
+	const tail = compressed[1];
+	const tailGroups = tail === undefined || tail === "" ? [] : tail.split(":");
+	const missing = 8 - headGroups.length - tailGroups.length;
+	if (tail === undefined ? missing !== 0 : missing < 1) return null;
+	return [...headGroups, ...Array<string>(Math.max(0, missing)).fill("0"), ...tailGroups]
+		.map((group) => group.replace(/^0+(?=[0-9a-f])/, ""));
+}
+
+/** Loopback, unspecified, IPv4-mapped/compatible, unique-local, link-local, multicast. */
+function isPrivateIpv6(bare: string): boolean {
+	const groups = expandIpv6(bare);
+	if (groups === null) return false;
+	if (groups[0]!.match(/^f[cd]/)) return true; // fc00::/7 unique-local
+	if (groups[0]!.match(/^fe[89ab]/)) return true; // fe80::/10 link-local
+	if (groups[0]!.match(/^ff/)) return true; // ff00::/8 multicast
+	// :: , ::1 and IPv4-compatible (::/96).
+	if (groups.slice(0, 6).every((group) => group === "0")) return true;
+	// IPv4-mapped (::ffff:0:0/96), however the address is spelled.
+	return groups.slice(0, 5).every((group) => group === "0") && groups[5] === "ffff";
+}
+
 export function isPrivateAddress(host: string): boolean {
-	const bare = host.replace(/^\[|\]$/g, "").toLowerCase();
+	const bare = host.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
 	const v4 = bare.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
 	if (v4) {
 		const a = Number(v4[1]);
@@ -124,10 +156,7 @@ export function isPrivateAddress(host: string): boolean {
 		if (a >= 224) return true; // multicast and reserved ranges
 		return false;
 	}
-	if (bare === "::1") return true;
-	if (bare.startsWith("fe80:")) return true; // IPv6 link-local
-	if (bare.startsWith("fc") || bare.startsWith("fd")) return true; // IPv6 unique-local
-	return false;
+	return isPrivateIpv6(bare);
 }
 
 function shortUrl(url: string): string {

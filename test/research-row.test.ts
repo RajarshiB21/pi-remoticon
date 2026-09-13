@@ -18,14 +18,14 @@ const details = (over: Partial<RenderableDetails> = {}): RenderableDetails => ({
   ...over,
 });
 
-function row(args: unknown, result: { details: RenderableDetails; isError?: boolean }, isPartial = false): string[] {
+function row(args: unknown, result: { details: RenderableDetails; isError?: boolean; text?: string }, isPartial = false): string[] {
   const component = new ToolExecutionComponent("fetch", "call-1", args, {}, {
     renderShell: "self",
     renderCall: renderFetchCall,
     renderResult: renderFetchResult,
   } as never, { requestRender() {} } as unknown as TUI, process.cwd());
   component.updateResult(
-    { content: [{ type: "text", text: "fetch: 1 target (1 usable, 0 dead ends, 0 failed)" }], details: result.details, isError: result.isError ?? false },
+    { content: [{ type: "text", text: result.text ?? "fetch: 1 target (1 usable, 0 dead ends, 0 failed)" }], details: result.details, isError: result.isError ?? false },
     isPartial,
   );
   return component.render(120);
@@ -118,4 +118,14 @@ it("paints the running marker violet, repaints on settle, and never paints a bac
 it("strips terminal escapes and control bytes from model-supplied urls", () => {
   expect(shrinkUrl("https://example.com/\u001b[31mred")).toBe("example.com/red");
   expect(shrinkUrl("https://example.com/\u0007bell")).toBe("example.com/bell");
+});
+
+it("strips terminal escapes from painted error text too", () => {
+  const failed = row({ targets: [{ url: "https://example.com/" }] }, {
+    details: details(),
+    isError: true,
+    text: "all 1 fetch targets failed: https://example.com/\u001b[2Jboom",
+  });
+  expect(failed.join("\n")).not.toContain("\x1b[2J");
+  expect(plain(failed)).toContain("all 1 fetch targets failed: https://example.com/boom");
 });

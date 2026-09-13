@@ -307,7 +307,8 @@ export function registerFetchTool(pi: ExtensionAPI): void {
 					const deadlineBatch = finishDeadlineBatch(request, error.events, error.timeoutMs);
 					events = [...error.events, deadlineBatch];
 				} else {
-					if (!truncationPathReturned) await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
+					// A failed or cancelled call never handed this directory to the model.
+					await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
 					sessionTempDirs.delete(outputDir);
 					if (error instanceof HelperCancelledError || signal?.aborted) {
 						return {
@@ -352,7 +353,7 @@ export function registerFetchTool(pi: ExtensionAPI): void {
 				groupSummary: settledSummary(pages),
 			};
 
-			const keep = truncationPathReturned || model.totalTruncated;
+			const keep = truncationPathReturned;
 			if (!keep) {
 				// Nothing was handed to the model from this directory.
 				await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);

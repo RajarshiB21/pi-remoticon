@@ -209,6 +209,16 @@ export function assertBatchId(event: HelperEvent, batchId: string): void {
 
 export class ProtocolError extends Error {}
 
+/**
+ * Remove ANSI escape sequences and control bytes from untrusted text
+ * (model-supplied URLs, server reason phrases, helper error text) before it
+ * is stored in a result or painted in the transcript.
+ */
+export function stripControlSequences(text: string): string {
+	// eslint-disable-next-line no-control-regex
+	return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+}
+
 export function shortText(text: string, max: number, tail = 0): string {
 	if (text.length <= max) return text;
 	const head = text.slice(0, Math.max(0, max - tail));

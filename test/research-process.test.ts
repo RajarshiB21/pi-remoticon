@@ -95,7 +95,8 @@ describe("runHelper", () => {
       "setTimeout(() => {}, 30000);",
     ].join("\n")));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await run.cancel("user escape");
+    await run.cancel("test cancel reason");
+    await expect(run.completion).rejects.toThrow(/test cancel reason/);
     await expect(run.completion).rejects.toBeInstanceOf(HelperCancelledError);
   });
 

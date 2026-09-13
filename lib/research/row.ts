@@ -11,7 +11,7 @@
 import { Container, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import type { ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { formatSize } from "@earendil-works/pi-coding-agent";
-import { pageLadder, type AttemptRecord, type PageRecord } from "./protocol.js";
+import { pageLadder, stripControlSequences, type AttemptRecord, type PageRecord } from "./protocol.js";
 
 type RowTheme = {
 	bold(text: string): string;
@@ -46,8 +46,7 @@ const EVIDENCE_INDENT = "  ";
 /** Short display URL: escapes stripped, scheme dropped, long paths middle-ellipsized. */
 export function shrinkUrl(url: string, max = 52): string {
 	// Model-supplied URLs are untrusted; never let an escape sequence reach the TUI.
-	// eslint-disable-next-line no-control-regex
-	const stripped = url.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/[\u0000-\u001f\u007f-\u009f]/g, "").replace(/^[a-z]+:\/\//i, "");
+	const stripped = stripControlSequences(url).replace(/^[a-z]+:\/\//i, "");
 	if (stripped.length <= max) return stripped;
 	const slash = stripped.indexOf("/");
 	if (slash < 0) return stripped.slice(0, max - 1) + "…";
@@ -97,7 +96,8 @@ export function renderFetchCall(args: unknown, theme: RowTheme, context: RenderC
 }
 
 function shrinkReason(reason: string): string {
-	return reason.length > 60 ? `${reason.slice(0, 60)}…` : reason;
+	const visible = stripControlSequences(reason);
+	return visible.length > 60 ? `${visible.slice(0, 60)}…` : visible;
 }
 
 function finalStatusText(page: PageRecord): string {
@@ -107,6 +107,7 @@ function finalStatusText(page: PageRecord): string {
 
 /** Ladder-aware status text; every branch names only recorded facts. */
 function targetStatus(page: PageRecord, ladder: ReturnType<typeof pageLadder>, theme: RowTheme): string {
+	const deadEnd = page.deadEndReason === null ? null : stripControlSequences(page.deadEndReason);
 	if (ladder !== null) {
 		if (ladder.recovered) {
 			const first =
@@ -115,17 +116,17 @@ function targetStatus(page: PageRecord, ladder: ReturnType<typeof pageLadder>, t
 					: ladder.firstKind === "empty"
 						? `${ladder.firstStatus ?? "unknown"} → empty`
 						: String(ladder.firstStatus ?? "unknown");
-			const final = page.usable ? finalStatusText(page) : page.deadEndReason ?? "unusable";
+			const final = page.usable ? finalStatusText(page) : deadEnd ?? "unusable";
 			const text = `${first} → cleared with ${ladder.finalTier} · ${final}`;
 			return page.usable ? theme.fg("success", text) : theme.fg("warning", text);
 		}
 		if (page.error !== null) return theme.fg("error", `failed: ${shrinkReason(page.error)}`);
 		const first = String(ladder.firstStatus ?? "unknown");
-		if (ladder.firstKind === "empty") return theme.fg("warning", `${first} → ${page.deadEndReason ?? "empty content"}`);
-		return theme.fg("warning", `${first} → ${page.deadEndReason ?? "blocked"}`);
+		if (ladder.firstKind === "empty") return theme.fg("warning", `${first} → ${deadEnd ?? "empty content"}`);
+		return theme.fg("warning", `${first} → ${deadEnd ?? "blocked"}`);
 	}
 	if (page.error !== null) return theme.fg("error", `failed: ${shrinkReason(page.error)}`);
-	if (!page.usable) return theme.fg("warning", `${page.finalStatus ?? "no status"} → ${page.deadEndReason ?? "unusable"}`);
+	if (!page.usable) return theme.fg("warning", `${page.finalStatus ?? "no status"} → ${deadEnd ?? "unusable"}`);
 	const extracted = page.selectorApplied
 		? `selector ${JSON.stringify(page.selector ?? "")} → ${formatSize(page.extractedBytes ?? 0)}`
 		: `main content → ${formatSize(page.extractedBytes ?? 0)}`;
@@ -153,20 +154,23 @@ function throttleLine(details: RenderableDetails, theme: RowTheme): string | nul
 	if (!throttle) return null;
 	const observed = Object.entries(throttle.observedDelays ?? {}).filter(([, ms]) => Number.isFinite(ms) && ms > 0);
 	if (observed.length === 0) return null;
-	const text = `AutoThrottle ${throttle.enabled ? "on" : "off"} (start ${throttle.startDelayMs}ms, max ${throttle.maxDelayMs}ms, block backoff ${throttle.blockBackoff ? "on" : "off"}) · observed: ${observed.map(([domain, ms]) => `${domain} ${Math.round(ms)}ms`).join(", ")}`;
+	const text = `AutoThrottle ${throttle.enabled ? "on" : "off"} (start ${throttle.startDelayMs}ms, max ${throttle.maxDelayMs}ms, block backoff ${throttle.blockBackoff ? "on" : "off"}) · observed: ${observed.map(([domain, ms]) => `${stripControlSequences(domain)} ${Math.round(ms)}ms`).join(", ")}`;
 	return theme.fg("muted", text);
 }
 
 function liveState(live: LiveRow, theme: RowTheme): string {
 	const color = live.kind === "ok" ? "success" : live.kind === "bad" ? "error" : live.kind === "warn" ? "warning" : "muted";
-	return theme.fg(color, live.state);
+	return theme.fg(color, stripControlSequences(live.state));
 }
 
 function errorHeadline(result: { content?: unknown }): string {
 	const content = result?.content;
 	if (Array.isArray(content)) {
 		const text = content.find((part) => (part as { type?: string })?.type === "text") as { text?: string } | undefined;
-		if (text?.text) return text.text.length > 300 ? `${text.text.slice(0, 300)}…` : text.text;
+		if (text?.text) {
+			const visible = stripControlSequences(text.text);
+			return visible.length > 300 ? `${visible.slice(0, 300)}…` : visible;
+		}
 	}
 	return "fetch failed.";
 }

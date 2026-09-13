@@ -24,4 +24,10 @@ describe("helper source", () => {
   it("carries no machine-absolute path", () => {
     expect(/[A-Za-z]:\\|\/(?:home|Users|tmp|root|var|opt|mnt|media|private)\//.test(helper)).toBe(false);
   });
+
+  it("parses IP literals with the stdlib parser, not hand-rolled arithmetic", () => {
+    expect(helper).toContain("import ipaddress");
+    expect(helper).toContain("return not address.is_global");
+    expect(helper).not.toContain('int(text.split(".")[1]');
+  });
 });

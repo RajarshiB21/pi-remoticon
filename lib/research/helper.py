@@ -41,6 +41,7 @@ R5 "Return to Vision" (2026-08-30, RV-1..RV-6) corrects the ladder:
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
 import re
@@ -226,14 +227,19 @@ def fatal_error(emitter: Emitter | None, message: str) -> None:
 
 
 def _is_private_ip_literal(text: str) -> bool:
-    text = text.strip("[]").lower()
-    if text.startswith(("127.", "10.", "192.168.", "169.254.", "0.", "224.", "240.")):
-        return True
-    if text.startswith("172.") and 16 <= int(text.split(".")[1] or "0") <= 31:
-        return True
-    if text == "::1" or text.startswith(("fe80:", "fc", "fd")):
-        return True
-    return False
+    """True for any IP literal that is not globally reachable.
+
+    Handles full and compressed IPv6 spellings (including IPv4-mapped
+    forms), and returns False for hostnames, so a name like 172.example.com
+    is never parsed as arithmetic.
+    """
+    try:
+        address = ipaddress.ip_address(text.strip("[]"))
+    except ValueError:
+        return False
+    # is_global covers private, loopback, link-local, unspecified and reserved
+    # ranges; multicast needs its own flag (it reports as globally reachable).
+    return not address.is_global or address.is_multicast
 
 
 def validate_target_url(url: str) -> str | None:
@@ -248,8 +254,8 @@ def validate_target_url(url: str) -> str | None:
         return f"target scheme {parsed.scheme or '(empty)'} is not public http(s)"
     if parsed.username or parsed.password or "@" in parsed.netloc:
         return "target URL embeds credentials"
-    hostname = (parsed.hostname or "").lower()
-    if hostname == "" or hostname == ".":
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if hostname == "":
         return "target URL has no host"
     loopback_allowed = os.environ.get("PI_RESEARCH_TEST_ALLOW_LOOPBACK") == "1"
     if loopback_allowed and (hostname == "localhost" or hostname == "127.0.0.1" or hostname == "::1"):

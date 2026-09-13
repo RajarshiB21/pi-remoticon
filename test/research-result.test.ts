@@ -51,6 +51,7 @@ describe("details and failure helpers", () => {
     expect(details.browserMode).toBe("none");
     expect(allTargetsFailed(pages)).toBe(true);
     expect(firstFailureSummary(pages)).toBe("https://example.com/");
+    expect(firstFailureSummary([page({ usable: false, error: "boom", requestedUrl: "https://example.com/\u001b[2Jx" })])).toBe("https://example.com/x");
     expect(summaryCounts(pages)).toBe("0 usable, 0 dead ends, 1 failed");
     expect(allTargetsFailed([page()])).toBe(false);
   });

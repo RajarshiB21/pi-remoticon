@@ -95,6 +95,7 @@ export function runHelper(
 	const events: HelperEvent[] = [];
 	let settled = false;
 	let cancelled = false;
+	let cancelReason = "user escape";
 	let timedOut = false;
 	let completingEvent: "batch_finished" | "fatal_error" | null = null;
 	const stderrChunks: Buffer[] = [];
@@ -219,7 +220,7 @@ export function runHelper(
 		if (timedOut) {
 			settle("reject", new HelperDeadlineError(deadlineMs, [...events]));
 		} else if (cancelled) {
-			settle("reject", new HelperCancelledError("user escape"));
+			settle("reject", new HelperCancelledError(cancelReason));
 		} else if (completingEvent === "batch_finished") {
 			settle("resolve", events);
 		} else if (completingEvent === "fatal_error") {
@@ -242,13 +243,12 @@ export function runHelper(
 		cancel: async (reason: string): Promise<void> => {
 			if (!settled) {
 				cancelled = true;
+				cancelReason = reason;
 				completingEvent = null;
 				killProcessTree(child);
 			}
 			if (signal) signal.removeEventListener("abort", onAbort);
 			await exitInfo;
-			// Keep a reference so callers can still see the requested reason.
-			if (!settled) settle("reject", new HelperCancelledError(reason));
 		},
 	};
 }

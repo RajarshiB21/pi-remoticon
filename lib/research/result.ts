@@ -7,7 +7,7 @@
 
 import type { BatchFinishedEvent, HelperRequest, PageRecord } from "./protocol.js";
 import type { AttemptRecord } from "./protocol.js";
-import { pageLadder } from "./protocol.js";
+import { pageLadder, stripControlSequences } from "./protocol.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 
 export interface AssembledResult {
@@ -16,7 +16,7 @@ export interface AssembledResult {
 }
 
 function safeUrl(url: string): string {
-	return url.replace(/[\r\n]+/g, " ");
+	return stripControlSequences(url).replace(/\s+/g, " ");
 }
 
 function statusLabel(page: PageRecord): string {
@@ -25,7 +25,7 @@ function statusLabel(page: PageRecord): string {
 	return page.usable ? "usable" : "retrieved but unusable";
 }
 
-function sectionFor(index: number, total: number, page: PageRecord, attempts: AttemptRecord[], savedPaths: string[]): string {
+function sectionFor(index: number, total: number, page: PageRecord, attempts: AttemptRecord[]): string {
 	const status =
 		page.finalStatus === null
 			? "no response"
@@ -68,7 +68,6 @@ function sectionFor(index: number, total: number, page: PageRecord, attempts: At
 		}
 	}
 	if (page.truncation !== null && page.truncation.truncated) {
-		savedPaths.push(page.truncation.outputPath ?? "");
 		lines.push(`  [truncated for the model: kept ${formatSize(page.truncation.keptBytes)} of ${formatSize(page.truncation.totalBytes)}; full sanitized markdown saved to ${page.truncation.outputPath ?? "(path unavailable)"}]`);
 	}
 	return lines.join("\n");
@@ -83,13 +82,12 @@ export function summaryCounts(pages: PageRecord[]): string {
 
 export function buildModelResult(batchFinished: BatchFinishedEvent, attempts: AttemptRecord[] = []): AssembledResult {
 	const pages = batchFinished.pages;
-	const savedPaths: string[] = [];
 	const header = `fetch: ${pages.length} target${pages.length === 1 ? "" : "s"} (${summaryCounts(pages)}) | browser mode: ${batchFinished.browserMode}`;
 	const sections: string[] = [header];
 	let index = 0;
 	for (const page of pages) {
 		index += 1;
-		sections.push(sectionFor(index, pages.length, page, attempts, savedPaths));
+		sections.push(sectionFor(index, pages.length, page, attempts));
 	}
 	sections.push(`batch stats: responses ${batchFinished.stats.requestCount} | blocks ${batchFinished.stats.blockedCount} | failed ${batchFinished.stats.failedCount}`);
 	const joined = sections.join("\n\n");

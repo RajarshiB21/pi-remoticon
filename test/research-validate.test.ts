@@ -18,6 +18,11 @@ describe("validateTargetUrl", () => {
     expect(validateTargetUrl("http://127.0.0.1/")?.message).toMatch(/private|not public/);
     expect(validateTargetUrl("http://10.0.0.5/")?.message).toMatch(/private|not public/);
     expect(validateTargetUrl("http://[::1]/")?.message).toMatch(/private|not public/);
+    expect(validateTargetUrl("http://localhost./")?.message).toMatch(/not public/);
+    expect(validateTargetUrl("http://[::ffff:127.0.0.1]/")?.message).toMatch(/private|not public/);
+    expect(validateTargetUrl("http://[::]/")?.message).toMatch(/private|not public/);
+    expect(validateTargetUrl("http://[ff02::1]/")?.message).toMatch(/private|not public/);
+    expect(validateTargetUrl("http://172.example.com/")).toBeNull();
   });
 
   it("allows loopback only behind the documented test gate", () => {
@@ -50,10 +55,10 @@ describe("validateCaptureXhr", () => {
 
 describe("isPrivateAddress", () => {
   it("covers the rejected ranges", () => {
-    for (const host of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.1.1", "0.0.0.0", "224.0.0.1", "::1", "fe80::1", "fc00::1", "fd12::1"]) {
+    for (const host of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.1.1", "0.0.0.0", "224.0.0.1", "::1", "::", "::ffff:7f00:1", "0:0:0:0:0:ffff:7f00:1", "ff02::1", "fe80::1", "fc00::1", "fd12::1"]) {
       expect(isPrivateAddress(host), host).toBe(true);
     }
-    for (const host of ["8.8.8.8", "172.32.0.1", "example.com", "2001:4860:4860::8888"]) {
+    for (const host of ["8.8.8.8", "172.32.0.1", "172.example.com", "example.com", "2001:4860:4860::8888"]) {
       expect(isPrivateAddress(host), host).toBe(false);
     }
   });
