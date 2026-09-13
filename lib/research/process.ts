@@ -11,20 +11,76 @@
  *   arrives (section 9, INV-3 and INV-11).
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertBatchId, parseHelperEvent, type HelperEvent, type HelperRequest } from "./protocol.js";
 
-/** Interpreter resolution (design D6): no machine-absolute path anywhere. */
-export function resolveHelperInterpreter(): string {
-	const configured = process.env.PI_REMOTICON_PYTHON?.trim();
-	if (configured) return configured;
-	return process.platform === "win32" ? "python" : "python3";
+/** Interpreter resolution: no machine-absolute path anywhere. The environment
+ * is discovered and verified, so typing `pi` is the whole setup. */
+const DEPENDENCY_PROBE = "import importlib.util as u; assert u.find_spec('scrapling') and u.find_spec('orjson')";
+const PROBE_TIMEOUT_MS = 20_000;
+
+const INTERPRETER_HINT = " (no Python with scrapling and orjson was found; create a conda environment named scrapling with those packages, or set PI_REMOTICON_PYTHON to such an interpreter)";
+
+/** True when the candidate can see both helper dependencies (no heavy import). */
+function interpreterHasDependencies(interpreter: string): boolean {
+	const probe = spawnSync(interpreter, ["-c", DEPENDENCY_PROBE], { timeout: PROBE_TIMEOUT_MS, windowsHide: true, stdio: "ignore" });
+	return probe.status === 0;
 }
 
-const INTERPRETER_HINT = " (set PI_REMOTICON_PYTHON to a Python interpreter with scrapling==0.4.15 and orjson installed)";
+/** Interpreter paths of conda environments named "scrapling" in `conda env list --json` output. */
+export function scraplingInterpretersFromCondaEnvs(condaJson: string): string[] {
+	try {
+		const parsed = JSON.parse(condaJson) as { envs?: unknown };
+		if (!Array.isArray(parsed.envs)) return [];
+		return parsed.envs
+			.filter((value): value is string => typeof value === "string" && /(^|[\\/])scrapling$/.test(value))
+			.map((env) => process.platform === "win32" ? join(env, "python.exe") : join(env, "bin", "python"));
+	} catch {
+		return [];
+	}
+}
+
+function condaLocatedInterpreters(): string[] {
+	const listed = spawnSync("conda", ["env", "list", "--json"], { timeout: PROBE_TIMEOUT_MS, windowsHide: true, encoding: "utf8" });
+	if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
+	return scraplingInterpretersFromCondaEnvs(listed.stdout);
+}
+
+/** Candidates in order: an explicit override wins, then PATH, then conda environments named scrapling. */
+export function helperInterpreterCandidates(condaEnvs: () => string[] = condaLocatedInterpreters): string[] {
+	const configured = process.env.PI_REMOTICON_PYTHON?.trim();
+	if (configured) return [configured];
+	const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
+	const defaults = home === "" ? [] : [join(home, "miniconda3", "envs", "scrapling"), join(home, "anaconda3", "envs", "scrapling")]
+		.map((env) => process.platform === "win32" ? join(env, "python.exe") : join(env, "bin", "python"));
+	return [process.platform === "win32" ? "python" : "python3", ...defaults, ...condaEnvs()];
+}
+
+/** The first candidate that can see scrapling and orjson; the PATH name last,
+ * so a total miss still fails with the install hint rather than a bad answer. */
+export function resolveHelperInterpreter(
+	probe: (interpreter: string) => boolean = interpreterHasDependencies,
+	candidates: () => string[] = () => helperInterpreterCandidates(),
+): string {
+	const configured = process.env.PI_REMOTICON_PYTHON?.trim();
+	if (configured) return configured;
+	const list = candidates();
+	for (const candidate of list) {
+		if (probe(candidate)) return candidate;
+	}
+	return list[0] ?? (process.platform === "win32" ? "python" : "python3");
+}
+
+/** Resolution runs once per process: the probe costs a second or two. */
+let cachedInterpreter: string | null = null;
+
+function interpreterForSpawn(): string {
+	cachedInterpreter ??= resolveHelperInterpreter();
+	return cachedInterpreter;
+}
 
 /** Absolute path of helper.py next to this module; valid under jiti and vitest. */
 export function helperScriptPath(): string {
@@ -130,7 +186,7 @@ export function runHelper(
 
 	const child = spawnForTest
 		? spawnForTest()
-		: spawn(resolveHelperInterpreter(), [helperScriptPath()], {
+		: spawn(interpreterForSpawn(), [helperScriptPath()], {
 				stdio: ["pipe", "pipe", "pipe"],
 				windowsHide: true,
 			});

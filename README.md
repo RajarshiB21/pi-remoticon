@@ -30,17 +30,16 @@ pi install <path-to-repo>
 
 ## Python prerequisite (web fetch)
 
-The `fetch` tool runs `lib/research/helper.py` under a Python interpreter that has Scrapling installed:
+The `fetch` tool needs Python 3.12 with Scrapling. Install it once:
 
 ```powershell
 conda create -n scrapling python=3.12
 conda activate scrapling
 pip install -r lib/research/requirements.txt
 playwright install chromium
-$env:PI_REMOTICON_PYTHON = (Get-Command python).Source
 ```
 
-The known-good interpreter on this machine is `C:\Users\rajar\miniconda3\envs\scrapling\python.exe`. When `PI_REMOTICON_PYTHON` is unset the tool falls back to `python` on Windows and `python3` elsewhere on PATH; no absolute interpreter path is embedded in the code. `scrapling==0.4.15` is pinned because the helper uses Scrapling internals that move between releases.
+pi finds that environment by itself. It uses `PI_REMOTICON_PYTHON` first when you have set it, otherwise it checks the ordinary `python` on PATH and then looks for conda environments named `scrapling`; only an interpreter that can actually see `scrapling` and `orjson` is used. There is no shell setup to remember. Set `PI_REMOTICON_PYTHON` only when the environment has a different name or lives somewhere unusual. The known-good interpreter on this machine is `C:\Users\rajar\miniconda3\envs\scrapling\python.exe`; no absolute interpreter path is embedded in the code. `scrapling==0.4.15` is pinned because the helper uses Scrapling internals that move between releases.
 
 ## Development
 

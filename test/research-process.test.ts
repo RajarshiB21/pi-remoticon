@@ -3,7 +3,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
   DEFAULT_HELPER_DEADLINE_MS, HelperCancelledError, HelperDeadlineError,
-  helperScriptPath, resolveHelperInterpreter, runHelper,
+  helperInterpreterCandidates, helperScriptPath, resolveHelperInterpreter,
+  scraplingInterpretersFromCondaEnvs, runHelper,
 } from "../lib/research/process.js";
 import { PROTOCOL_VERSION, type HelperRequest } from "../lib/research/protocol.js";
 
@@ -31,17 +32,45 @@ function nodeHelper(body: string): ChildProcess {
 }
 
 describe("runHelper", () => {
-  it("resolves the interpreter from PI_REMOTICON_PYTHON, else a PATH name", () => {
+  it("uses the configured interpreter without probing, and otherwise probes candidates in order", () => {
     const before = process.env.PI_REMOTICON_PYTHON;
     try {
-      delete process.env.PI_REMOTICON_PYTHON;
-      expect(resolveHelperInterpreter()).toBe(process.platform === "win32" ? "python" : "python3");
       process.env.PI_REMOTICON_PYTHON = "   /opt/scrapling/bin/python   ";
-      expect(resolveHelperInterpreter()).toBe("/opt/scrapling/bin/python");
+      expect(resolveHelperInterpreter(() => false, () => ["never-probed"])).toBe("/opt/scrapling/bin/python");
+
+      delete process.env.PI_REMOTICON_PYTHON;
+      const order = ["python-guess", "conda-scrapling"];
+      expect(resolveHelperInterpreter((name) => name === "conda-scrapling", () => order)).toBe("conda-scrapling");
+      expect(resolveHelperInterpreter((name) => name === "python-guess", () => order)).toBe("python-guess");
+      // Nothing verified: the first candidate is returned so the spawn failure carries the install hint.
+      expect(resolveHelperInterpreter(() => false, () => order)).toBe("python-guess");
     } finally {
       if (before === undefined) delete process.env.PI_REMOTICON_PYTHON;
       else process.env.PI_REMOTICON_PYTHON = before;
     }
+  });
+
+  it("offers PATH first and conda-located environments last", () => {
+    const before = process.env.PI_REMOTICON_PYTHON;
+    try {
+      delete process.env.PI_REMOTICON_PYTHON;
+      const list = helperInterpreterCandidates(() => ["conda-scrapling"]);
+      expect(list[0]).toBe(process.platform === "win32" ? "python" : "python3");
+      expect(list.at(-1)).toBe("conda-scrapling");
+    } finally {
+      if (before === undefined) delete process.env.PI_REMOTICON_PYTHON;
+      else process.env.PI_REMOTICON_PYTHON = before;
+    }
+  });
+
+  it("reads only scrapling-named environments from conda's list", () => {
+    const json = JSON.stringify({ envs: ["C:\\Users\\x\\miniconda3", "C:\\Users\\x\\miniconda3\\envs\\scrapling", "/opt/conda/envs/not-scrapling", "/opt/conda/envs/scrapling"] });
+    const found = scraplingInterpretersFromCondaEnvs(json);
+    expect(found).toHaveLength(2);
+    expect(found[0]!.endsWith(process.platform === "win32" ? "python.exe" : "python")).toBe(true);
+    expect(found[1]!).toContain("scrapling");
+    expect(scraplingInterpretersFromCondaEnvs("not json")).toEqual([]);
+    expect(scraplingInterpretersFromCondaEnvs(JSON.stringify({ envs: "nope" }))).toEqual([]);
   });
 
   it("resolves helper.py next to the module", () => {
@@ -112,6 +141,6 @@ describe("runHelper", () => {
 
   it("names PI_REMOTICON_PYTHON when the helper cannot start", async () => {
     const run = runHelper(request(), undefined, undefined, () => spawn("pi-remoticon-no-such-binary-xyz", []));
-    await expect(run.completion).rejects.toThrow(/PI_REMOTICON_PYTHON.*scrapling==0\.4\.15/);
+    await expect(run.completion).rejects.toThrow(/scrapling.*PI_REMOTICON_PYTHON/);
   });
 });
