@@ -60,6 +60,7 @@ export function validateBlockedDomains(entries: unknown, targets: Array<{ url: s
 		if (entry.length > 253) {
 			return new Error(`blockedDomains[${index}] is too long`);
 		}
+		// eslint-disable-next-line no-control-regex
 		if (/[\s/\\:@]/.test(entry) || entry.includes("://") || /[\u0000-\u001f\u007f]/.test(entry)) {
 			return new Error(`blockedDomains[${index}] must be a bare domain with no scheme, path, credentials, or whitespace`);
 		}
@@ -70,7 +71,7 @@ export function validateBlockedDomains(entries: unknown, targets: Array<{ url: s
 		seen.add(lowered);
 	}
 	for (const target of targets) {
-		let host = "";
+		let host: string;
 		try {
 			host = new URL(target.url).hostname.toLowerCase();
 		} catch {
@@ -98,6 +99,7 @@ export function validateCaptureXhr(pattern: unknown): Error | null {
 	if (pattern.length > 200) {
 		return new Error("captureXhr pattern is too long (max 200 characters)");
 	}
+	// eslint-disable-next-line no-control-regex
 	if (/[\u0000-\u001f\u007f]/.test(pattern)) {
 		return new Error("captureXhr must not contain control characters");
 	}

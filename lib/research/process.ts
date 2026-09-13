@@ -97,7 +97,6 @@ export function runHelper(
 	let cancelled = false;
 	let timedOut = false;
 	let completingEvent: "batch_finished" | "fatal_error" | null = null;
-	let deadlineTimer: NodeJS.Timeout | undefined;
 	const stderrChunks: Buffer[] = [];
 	let stderrBytes = 0;
 
@@ -116,7 +115,7 @@ export function runHelper(
 	function settle(kind: "resolve" | "reject", payload: unknown): void {
 		if (settled) return;
 		settled = true;
-		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+		clearTimeout(deadlineTimer);
 		if (kind === "resolve") resolveCompletion(payload as HelperEvent[]);
 		else rejectCompletion(payload);
 	}
@@ -137,7 +136,7 @@ export function runHelper(
 
 	// A Scrapling or browser wait can outlive its own operation timeout. This
 	// wall-clock deadline is the final guard and kills the entire local tree.
-	deadlineTimer = setTimeout(() => {
+	const deadlineTimer = setTimeout(() => {
 		if (settled) return;
 		timedOut = true;
 		completingEvent = null;
@@ -146,7 +145,7 @@ export function runHelper(
 	deadlineTimer.unref?.();
 
 	// stdin: one versioned JSON request, then close the write side immediately.
-	let stdin = child.stdin;
+	const stdin = child.stdin;
 	if (stdin) {
 		stdin.on("error", () => { /* EPIPE after an early helper exit; the exit handler decides. */ });
 		stdin.write(JSON.stringify(request) + "\n");
@@ -154,7 +153,7 @@ export function runHelper(
 	}
 
 	// stderr: log sink only, bounded capture for failure diagnostics.
-	let childErr = child.stderr;
+	const childErr = child.stderr;
 	if (childErr) {
 		childErr.on("data", (chunk: Buffer) => {
 			const room = MAX_STDERR_CAPTURE - stderrBytes;
@@ -166,7 +165,7 @@ export function runHelper(
 	}
 
 	// stdout: strictly-validated NDJSON. Any junk kills the tree and fails the call.
-	let childOut = child.stdout;
+	const childOut = child.stdout;
 	const lines = childOut ? createInterface({ input: childOut }) : null;
 	if (lines) {
 		lines.on("line", (line: string) => {

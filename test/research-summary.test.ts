@@ -16,6 +16,7 @@ describe("group summaries", () => {
 
   it("stays free of control characters and ANSI", () => {
     const strings = [runningSummary(2), settledSummary([page({ usable: false, deadEndReason: "x" })]), CANCELLED_SUMMARY];
+    // eslint-disable-next-line no-control-regex
     for (const value of strings) expect(value).not.toMatch(/[\u0000-\u001f\u007f]|\x1b\[/);
   });
 });

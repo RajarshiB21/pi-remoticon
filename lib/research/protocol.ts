@@ -172,7 +172,7 @@ export function parseHelperEvent(line: string): HelperEvent | null {
 	let raw: unknown;
 	try {
 		raw = JSON.parse(trimmed);
-	} catch (error) {
+	} catch {
 		throw new ProtocolError(`helper stdout line is not JSON: ${shortText(trimmed, 120, 12)}`);
 	}
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
