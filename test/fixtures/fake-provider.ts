@@ -92,6 +92,7 @@ export default function (pi: ExtensionAPI) {
           const failure = JSON.stringify(latestUser?.content ?? "").includes("FAILURE");
           const long = JSON.stringify(latestUser?.content ?? "").includes("LONG");
           const groupRun = JSON.stringify(latestUser?.content ?? "").includes("GROUPTOOLS");
+          const fetchBad = JSON.stringify(latestUser?.content ?? "").includes("FETCHBAD");
           const latestIndex = context.messages.lastIndexOf(latestUser!);
           const toolCount = context.messages.slice(latestIndex + 1).filter(message => message.role === "toolResult").length;
           if ((polish || restore && toolCount === 0 || boundary && toolCount < 2) && !wantsToolCall(context)) {
@@ -104,6 +105,20 @@ export default function (pi: ExtensionAPI) {
               await delay(200, undefined, { signal: options?.signal });
             }
             stream.push({ type: "thinking_end", contentIndex: 0, content: thinking.thinking, partial: out });
+          }
+          if (fetchBad && toolCount === 0) {
+            // One fetch call with a non-public scheme: rejected in TypeScript
+            // before any Python spawn, so this stays an offline test.
+            const toolCall = { type: "toolCall" as const, id: randomUUID(), name: "fetch", arguments: { targets: [{ url: "ftp://example.com/file" }] } };
+            out.content.push(toolCall);
+            const argsJson = JSON.stringify(toolCall.arguments);
+            stream.push({ type: "toolcall_start", contentIndex: 0, partial: out });
+            stream.push({ type: "toolcall_delta", contentIndex: 0, delta: argsJson, partial: out });
+            stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: out });
+            out.stopReason = "toolUse";
+            stream.push({ type: "done", reason: out.stopReason, message: out });
+            stream.end();
+            return;
           }
           if ((restore || skillRun) && toolCount === 0 || boundary && toolCount < 2 || failure && toolCount < 2) {
             if (restore) {

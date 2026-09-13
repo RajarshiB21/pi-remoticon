@@ -29,6 +29,7 @@ describe("static: no machine-absolute paths in the harness", () => {
       join(testDir, "helpers", "patch-harness.ts"),
       join(testDir, "fixtures", "fake-provider.ts"),
       join(repoRoot, "scripts", "apply-core-patch.ts"),
+      join(repoRoot, "lib", "research", "process.ts"),
     ]) {
       expect(abs.test(readFileSync(f, "utf8")), `${f} contains an absolute path`).toBe(false);
     }
