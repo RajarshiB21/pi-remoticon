@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
-  DEFAULT_HELPER_DEADLINE_MS, HelperCancelledError, HelperDeadlineError,
-  helperInterpreterCandidates, helperScriptPath, resolveHelperInterpreter,
-  scraplingInterpretersFromCondaEnvs, runHelper,
+  DEFAULT_HELPER_DEADLINE_MS, DEPENDENCY_PROBE, HelperCancelledError, HelperDeadlineError,
+  discoveredInterpreterCandidates, helperScriptPath, resolveHelperInterpreter,
+  resolveHelperInterpreterCached, scraplingInterpretersFromCondaEnvs, runHelper,
 } from "../lib/research/process.js";
 import { PROTOCOL_VERSION, type HelperRequest } from "../lib/research/protocol.js";
 
@@ -50,13 +50,38 @@ describe("runHelper", () => {
     }
   });
 
-  it("offers PATH first and conda-located environments last", () => {
+  it("offers PATH first, the default conda roots next and conda's list last", () => {
     const before = process.env.PI_REMOTICON_PYTHON;
     try {
       delete process.env.PI_REMOTICON_PYTHON;
-      const list = helperInterpreterCandidates(() => ["conda-scrapling"]);
+      const list = [...discoveredInterpreterCandidates(() => ["conda-scrapling"])];
       expect(list[0]).toBe(process.platform === "win32" ? "python" : "python3");
       expect(list.at(-1)).toBe("conda-scrapling");
+      if ((process.env.USERPROFILE ?? process.env.HOME ?? "") !== "") {
+        expect(list.some((entry) => entry.includes("miniconda3"))).toBe(true);
+        expect(list.some((entry) => entry.includes("anaconda3"))).toBe(true);
+      }
+    } finally {
+      if (before === undefined) delete process.env.PI_REMOTICON_PYTHON;
+      else process.env.PI_REMOTICON_PYTHON = before;
+    }
+  });
+
+  it("keeps the dependency probe cheap and immune to PYTHONOPTIMIZE", () => {
+    expect(DEPENDENCY_PROBE).toContain("find_spec");
+    expect(DEPENDENCY_PROBE).toContain("sys.exit");
+    expect(DEPENDENCY_PROBE).not.toContain("import scrapling");
+  });
+
+  it("probes once per process", () => {
+    const before = process.env.PI_REMOTICON_PYTHON;
+    let probes = 0;
+    try {
+      delete process.env.PI_REMOTICON_PYTHON;
+      const probe = () => { probes += 1; return true; };
+      expect(resolveHelperInterpreterCached(probe, () => ["first-candidate"])).toBe("first-candidate");
+      expect(resolveHelperInterpreterCached(probe, () => ["second-candidate"])).toBe("first-candidate");
+      expect(probes).toBe(1);
     } finally {
       if (before === undefined) delete process.env.PI_REMOTICON_PYTHON;
       else process.env.PI_REMOTICON_PYTHON = before;

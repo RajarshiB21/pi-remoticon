@@ -19,8 +19,10 @@ import { assertBatchId, parseHelperEvent, type HelperEvent, type HelperRequest }
 
 /** Interpreter resolution: no machine-absolute path anywhere. The environment
  * is discovered and verified, so typing `pi` is the whole setup. */
-const DEPENDENCY_PROBE = "import importlib.util as u; assert u.find_spec('scrapling') and u.find_spec('orjson')";
-const PROBE_TIMEOUT_MS = 20_000;
+export const DEPENDENCY_PROBE = "import importlib.util as u, sys; sys.exit(0 if (u.find_spec('scrapling') and u.find_spec('orjson')) else 1)";
+const PROBE_TIMEOUT_MS = 10_000;
+/** Bound on the whole search: a wedged interpreter must not freeze the first fetch. */
+const RESOLUTION_BUDGET_MS = 10_000;
 
 const INTERPRETER_HINT = " (no Python with scrapling and orjson was found; create a conda environment named scrapling with those packages, or set PI_REMOTICON_PYTHON to such an interpreter)";
 
@@ -44,41 +46,51 @@ export function scraplingInterpretersFromCondaEnvs(condaJson: string): string[] 
 }
 
 function condaLocatedInterpreters(): string[] {
-	const listed = spawnSync("conda", ["env", "list", "--json"], { timeout: PROBE_TIMEOUT_MS, windowsHide: true, encoding: "utf8" });
+	const listed = spawnSync("conda", ["env", "list", "--json"], { timeout: PROBE_TIMEOUT_MS, windowsHide: true, encoding: "utf8", shell: process.platform === "win32" });
 	if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
 	return scraplingInterpretersFromCondaEnvs(listed.stdout);
 }
 
-/** Candidates in order: an explicit override wins, then PATH, then conda environments named scrapling. */
-export function helperInterpreterCandidates(condaEnvs: () => string[] = condaLocatedInterpreters): string[] {
-	const configured = process.env.PI_REMOTICON_PYTHON?.trim();
-	if (configured) return [configured];
+/** Candidates after the override, in order: the PATH name, the default conda
+ * roots, then conda's own list. Lazy: asking conda is the expensive last
+ * resort and happens only when nothing above verified. */
+export function* discoveredInterpreterCandidates(condaEnvs: () => string[] = condaLocatedInterpreters): Generator<string> {
+	yield process.platform === "win32" ? "python" : "python3";
 	const home = process.env.USERPROFILE ?? process.env.HOME ?? "";
-	const defaults = home === "" ? [] : [join(home, "miniconda3", "envs", "scrapling"), join(home, "anaconda3", "envs", "scrapling")]
-		.map((env) => process.platform === "win32" ? join(env, "python.exe") : join(env, "bin", "python"));
-	return [process.platform === "win32" ? "python" : "python3", ...defaults, ...condaEnvs()];
+	if (home !== "") {
+		for (const root of ["miniconda3", "anaconda3"]) {
+			yield process.platform === "win32" ? join(home, root, "envs", "scrapling", "python.exe") : join(home, root, "envs", "scrapling", "bin", "python");
+		}
+	}
+	yield* condaEnvs();
 }
 
-/** The first candidate that can see scrapling and orjson; the PATH name last,
- * so a total miss still fails with the install hint rather than a bad answer. */
+/** The first candidate that can see scrapling and orjson, or the PATH name so a
+ * total miss still fails with the install hint rather than a wrong answer. */
 export function resolveHelperInterpreter(
 	probe: (interpreter: string) => boolean = interpreterHasDependencies,
-	candidates: () => string[] = () => helperInterpreterCandidates(),
+	candidates: () => Iterable<string> = discoveredInterpreterCandidates,
 ): string {
 	const configured = process.env.PI_REMOTICON_PYTHON?.trim();
 	if (configured) return configured;
-	const list = candidates();
-	for (const candidate of list) {
+	const deadline = Date.now() + RESOLUTION_BUDGET_MS;
+	let first: string | undefined;
+	for (const candidate of candidates()) {
+		first ??= candidate;
+		if (Date.now() >= deadline) break;
 		if (probe(candidate)) return candidate;
 	}
-	return list[0] ?? (process.platform === "win32" ? "python" : "python3");
+	return first ?? (process.platform === "win32" ? "python" : "python3");
 }
 
 /** Resolution runs once per process: the probe costs a second or two. */
 let cachedInterpreter: string | null = null;
 
-function interpreterForSpawn(): string {
-	cachedInterpreter ??= resolveHelperInterpreter();
+export function resolveHelperInterpreterCached(
+	probe: (interpreter: string) => boolean = interpreterHasDependencies,
+	candidates: () => Iterable<string> = discoveredInterpreterCandidates,
+): string {
+	cachedInterpreter ??= resolveHelperInterpreter(probe, candidates);
 	return cachedInterpreter;
 }
 
@@ -186,7 +198,7 @@ export function runHelper(
 
 	const child = spawnForTest
 		? spawnForTest()
-		: spawn(interpreterForSpawn(), [helperScriptPath()], {
+		: spawn(resolveHelperInterpreterCached(), [helperScriptPath()], {
 				stdio: ["pipe", "pipe", "pipe"],
 				windowsHide: true,
 			});
@@ -281,7 +293,7 @@ export function runHelper(
 			settle("resolve", events);
 		} else if (completingEvent === "fatal_error") {
 			const fatal = events.find((event): event is Extract<HelperEvent, { type: "fatal_error" }> => event.type === "fatal_error");
-			settle("reject", new Error(`fetch helper failed: ${fatal?.error ?? "unknown fatal error"}${stderrTailText(STDERR_TAIL_SHOWN)}${INTERPRETER_HINT}`));
+			settle("reject", new Error(`fetch helper failed: ${fatal?.error ?? "unknown fatal error"}${stderrTailText(STDERR_TAIL_SHOWN)}`));
 		} else {
 			settle("reject", new Error(`helper exited (code ${code}) without batch_finished${stderrTailText(STDERR_TAIL_SHOWN)}${INTERPRETER_HINT}`));
 		}
