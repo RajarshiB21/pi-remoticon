@@ -45,12 +45,14 @@ import ipaddress
 import logging
 import os
 import re
+import socket
 import sys
 import time
 import traceback
 from urllib.parse import urlparse
 
 import orjson
+from scrapling.engines.constants import EXTRA_RESOURCES
 from scrapling.fetchers import AsyncDynamicSession, AsyncStealthySession, FetcherSession
 from scrapling.spiders.request import Request
 from scrapling.spiders.spider import BLOCKED_CODES, Spider
@@ -296,7 +298,50 @@ class ResearchSpider(Spider):
         # Tier actually used per target, collected from every executed attempt.
         self._used_tiers: dict[str, set] = {}
         self._blocked_domains: set[str] = set(request.get("blockedDomains") or [])
+        # One DNS verdict per unique host per batch: the pre-flight target check
+        # and the browser request guard share it (SSRF hardening).
+        self._host_public: dict[str, bool] = {}
         super().__init__()
+
+    async def _host_is_public(self, host: str) -> bool:
+        """True only when every address the host resolves to is globally routable.
+
+        Resolution failures count as non-public: a host this machine cannot
+        resolve is not one to connect to. Cached per batch.
+        """
+        cached = self._host_public.get(host)
+        if cached is not None:
+            return cached
+        try:
+            infos = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        except OSError:
+            public = False
+        else:
+            public = bool(infos) and all(
+                not _is_private_ip_literal(str(info[4][0]).split("%", 1)[0]) for info in infos
+            )
+        self._host_public[host] = public
+        return public
+
+    async def _guard_browser_request(self, route) -> None:
+        """Refuse browser requests to hosts that do not resolve publicly.
+
+        Installed with page_setup, so it runs before navigation and also
+        covers redirects and background requests. Everything it allows falls
+        through to Scrapling's own resource/domain interceptor.
+        """
+        if route.request.resource_type in EXTRA_RESOURCES:
+            await route.fallback()
+            return
+        host = (urlparse(route.request.url).hostname or "").lower().rstrip(".")
+        if host and not await self._host_is_public(host):
+            self.logger.info(f"blocked a browser request to non-public host {host}")
+            await route.abort()
+        else:
+            await route.fallback()
+
+    async def _install_public_route_guard(self, page) -> None:
+        await page.route("**/*", self._guard_browser_request)
 
     def configure_sessions(self, manager) -> None:
         manager.add(
@@ -326,16 +371,27 @@ class ResearchSpider(Spider):
                 "dynamic",
                 # wait=800: a short settle beat so background fetch/XHR
                 # responses land before the page closes (capture_xhr).
-                AsyncDynamicSession(**common, capture_xhr=self._request["captureXhr"], wait=800),
+                AsyncDynamicSession(**common, capture_xhr=self._request["captureXhr"], wait=800, page_setup=self._install_public_route_guard),
                 lazy=True,
             )
-        manager.add("stealth", AsyncStealthySession(**common, solve_cloudflare=True), lazy=True)
+        manager.add("stealth", AsyncStealthySession(**common, solve_cloudflare=True, page_setup=self._install_public_route_guard), lazy=True)
 
     async def start_requests(self):
         # captureXhr opts the whole batch into a browser-capable first rung
         # because plain HTTP has no XHR (spec 6.3).
         first_tier = "dynamic" if self._request.get("captureXhr") else "http"
         for target in self._request["targets"]:
+            host = (urlparse(target["url"]).hostname or "").lower().rstrip(".")
+            if host and not await self._host_is_public(host):
+                # No request is made, so there is no attempt to record; the
+                # receipt says why the target was never fetched.
+                self._finalize_page(
+                    target["id"],
+                    None,
+                    selector=(target.get("selector") or None),
+                    dead_end_reason=f"host {host} does not resolve to a public address",
+                )
+                continue
             tier = first_tier
             kwargs = self._browser_kwargs(target) if tier == "dynamic" else {}
             # RV-9 known-hard-domain fast path: some sites (reddit.com,
@@ -632,6 +688,22 @@ class ResearchSpider(Spider):
         tier = str(request.sid) if request is not None else "http"
         self._record_tier(target_id, tier)
         selector = (target.get("selector") or "").strip() or None
+        # A redirect hop is followed by the transport without reaching our
+        # request guards: verified live, Playwright 1.62 does not invoke route
+        # handlers for server redirects, and the HTTP tier's curl "safe" mode
+        # only covers its own redirects. The landed URL is therefore checked
+        # here, before any of its content is read.
+        final_host = (urlparse(response.url).hostname or "").lower().rstrip(".")
+        if final_host and not await self._host_is_public(final_host):
+            self._emit_attempt(response, request, target_id, tier, blocked_signal="redirect to a non-public address")
+            self._finalize_page(
+                target_id,
+                None,
+                selector=selector,
+                dead_end_reason=f"redirected to a non-public address ({final_host})",
+            )
+            yield None
+            return
         text, total_bytes, selector_applied = self._extract_markdown(response, selector)
         if selector is not None and not selector_applied:
             text, total_bytes, _ = self._extract_markdown(response, None)
@@ -854,6 +926,12 @@ def main() -> None:
             selector = target.get("selector")
             if selector is not None and not isinstance(selector, str):
                 fatal_error(emitter, f"target {index} selector must be a string")
+                return
+            # The id becomes part of a saved filename in _bounded_excerpt, so
+            # only identifier-shaped values are accepted (path traversal guard).
+            supplied = target.get("id")
+            if "id" in target and (not isinstance(supplied, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", supplied)):
+                fatal_error(emitter, f"target {index} id must match [A-Za-z0-9_-]{{1,32}}")
                 return
             target.setdefault("id", f"t{index}")
         seen_ids = set()

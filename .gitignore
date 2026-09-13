@@ -25,3 +25,6 @@ Thumbs.db
 
 # Local workflow instructions (not part of the package)
 AGENTS.md
+
+# Python bytecode from local helper checks
+__pycache__/

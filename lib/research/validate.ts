@@ -27,10 +27,19 @@ export function validateTargetUrl(url: string): Error | null {
 	}
 	const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
 	const loopbackAllowed = process.env.PI_RESEARCH_TEST_ALLOW_LOOPBACK === "1";
-	if (host === "" || host === "." || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
-		if (!loopbackAllowed) return new Error(`target host ${JSON.stringify(host)} is not public`);
+	if (host === "" || host === ".") {
+		return new Error(`target host ${JSON.stringify(host)} is not public`);
 	}
-	if (isPrivateAddress(host) && !loopbackAllowed) {
+	// The documented test gate mirrors the helper's: only the loopback forms the
+	// offline fixtures use are allowed, never every private or link-local address.
+	const bareHost = host.replace(/^\[|\]$/g, "");
+	if (loopbackAllowed && (host === "localhost" || bareHost === "127.0.0.1" || bareHost === "::1")) {
+		return null;
+	}
+	if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
+		return new Error(`target host ${JSON.stringify(host)} is not public`);
+	}
+	if (isPrivateAddress(host)) {
 		return new Error(`target host ${JSON.stringify(host)} is private, loopback, or link-local`);
 	}
 	return null;

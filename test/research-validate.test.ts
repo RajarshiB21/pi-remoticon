@@ -29,6 +29,10 @@ describe("validateTargetUrl", () => {
   it("allows loopback only behind the documented test gate", () => {
     process.env.PI_RESEARCH_TEST_ALLOW_LOOPBACK = "1";
     expect(validateTargetUrl("http://127.0.0.1:8080/")).toBeNull();
+    expect(validateTargetUrl("http://localhost/")).toBeNull();
+    // The gate never widens to private or link-local addresses.
+    expect(validateTargetUrl("http://10.0.0.5/")?.message).toMatch(/private/);
+    expect(validateTargetUrl("http://169.254.1.1/")?.message).toMatch(/private/);
   });
 });
 

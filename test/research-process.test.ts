@@ -17,6 +17,11 @@ const request = (batchId = "b-test"): HelperRequest => ({
 
 const BATCH_STARTED = `emit({ type: "batch_started", startedAt: 1, browserMode: "none", globalConcurrency: 4, perDomainConcurrency: 2, maxBlockedRetries: 2, autoThrottle: { enabled: true, startDelayMs: 250, maxDelayMs: 30000, blockBackoff: true }, targetCount: 1 });`;
 
+/** Async candidate list for the resolver tests. */
+async function* candidatesOf(...values: string[]): AsyncGenerator<string> {
+  for (const value of values) yield value;
+}
+
 /** A Node stand-in for helper.py: read the request, run the body, exit. */
 function nodeHelper(body: string): ChildProcess {
   const script = [
@@ -32,29 +37,49 @@ function nodeHelper(body: string): ChildProcess {
 }
 
 describe("runHelper", () => {
-  it("uses the configured interpreter without probing, and otherwise probes candidates in order", () => {
+  it("uses the configured interpreter without probing, and otherwise probes candidates in order", async () => {
     const before = process.env.PI_REMOTICON_PYTHON;
     try {
       process.env.PI_REMOTICON_PYTHON = "   /opt/scrapling/bin/python   ";
-      expect(resolveHelperInterpreter(() => false, () => ["never-probed"])).toBe("/opt/scrapling/bin/python");
+      expect(await resolveHelperInterpreter(async () => false, () => candidatesOf("never-probed"))).toBe("/opt/scrapling/bin/python");
 
       delete process.env.PI_REMOTICON_PYTHON;
-      const order = ["python-guess", "conda-scrapling"];
-      expect(resolveHelperInterpreter((name) => name === "conda-scrapling", () => order)).toBe("conda-scrapling");
-      expect(resolveHelperInterpreter((name) => name === "python-guess", () => order)).toBe("python-guess");
+      expect(await resolveHelperInterpreter(async (name) => name === "conda-scrapling", () => candidatesOf("python-guess", "conda-scrapling"))).toBe("conda-scrapling");
+      expect(await resolveHelperInterpreter(async (name) => name === "python-guess", () => candidatesOf("python-guess", "conda-scrapling"))).toBe("python-guess");
       // Nothing verified: the first candidate is returned so the spawn failure carries the install hint.
-      expect(resolveHelperInterpreter(() => false, () => order)).toBe("python-guess");
+      expect(await resolveHelperInterpreter(async () => false, () => candidatesOf("python-guess", "conda-scrapling"))).toBe("python-guess");
     } finally {
       if (before === undefined) delete process.env.PI_REMOTICON_PYTHON;
       else process.env.PI_REMOTICON_PYTHON = before;
     }
   });
 
-  it("offers PATH first, the default conda roots next and conda's list last", () => {
+  it("resolves without blocking the event loop", async () => {
     const before = process.env.PI_REMOTICON_PYTHON;
     try {
       delete process.env.PI_REMOTICON_PYTHON;
-      const list = [...discoveredInterpreterCandidates(() => ["conda-scrapling"])];
+      let settled = false;
+      const pending = resolveHelperInterpreter(
+        async () => { await new Promise((resolve) => setTimeout(resolve, 50)); return false; },
+        () => candidatesOf("only-candidate"),
+      );
+      void pending.then(() => { settled = true; });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      // A blocking probe would have frozen the loop and this timer would not run.
+      expect(settled).toBe(false);
+      expect(await pending).toBe("only-candidate");
+    } finally {
+      if (before === undefined) delete process.env.PI_REMOTICON_PYTHON;
+      else process.env.PI_REMOTICON_PYTHON = before;
+    }
+  });
+
+  it("offers PATH first, the default conda roots next and conda's list last", async () => {
+    const before = process.env.PI_REMOTICON_PYTHON;
+    try {
+      delete process.env.PI_REMOTICON_PYTHON;
+      const list: string[] = [];
+      for await (const candidate of discoveredInterpreterCandidates(async () => ["conda-scrapling"])) list.push(candidate);
       expect(list[0]).toBe(process.platform === "win32" ? "python" : "python3");
       expect(list.at(-1)).toBe("conda-scrapling");
       if ((process.env.USERPROFILE ?? process.env.HOME ?? "") !== "") {
@@ -73,14 +98,14 @@ describe("runHelper", () => {
     expect(DEPENDENCY_PROBE).not.toContain("import scrapling");
   });
 
-  it("probes once per process", () => {
+  it("probes once per process", async () => {
     const before = process.env.PI_REMOTICON_PYTHON;
     let probes = 0;
     try {
       delete process.env.PI_REMOTICON_PYTHON;
-      const probe = () => { probes += 1; return true; };
-      expect(resolveHelperInterpreterCached(probe, () => ["first-candidate"])).toBe("first-candidate");
-      expect(resolveHelperInterpreterCached(probe, () => ["second-candidate"])).toBe("first-candidate");
+      const probe = async () => { probes += 1; return true; };
+      expect(await resolveHelperInterpreterCached(probe, () => candidatesOf("first-candidate"))).toBe("first-candidate");
+      expect(await resolveHelperInterpreterCached(probe, () => candidatesOf("second-candidate"))).toBe("first-candidate");
       expect(probes).toBe(1);
     } finally {
       if (before === undefined) delete process.env.PI_REMOTICON_PYTHON;
@@ -136,10 +161,10 @@ describe("runHelper", () => {
     const run = runHelper(request(), undefined, undefined, () => nodeHelper([
       BATCH_STARTED,
       "setTimeout(() => {}, 30000);",
-    ].join("\n")), 100);
+    ].join("\n")), 2_000);
     const error = await run.completion.catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(HelperDeadlineError);
-    expect((error as HelperDeadlineError).timeoutMs).toBe(100);
+    expect((error as HelperDeadlineError).timeoutMs).toBe(2_000);
     expect((error as HelperDeadlineError).events.map((event) => event.type)).toEqual(["batch_started"]);
   });
 

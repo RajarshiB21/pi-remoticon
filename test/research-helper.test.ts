@@ -30,4 +30,12 @@ describe("helper source", () => {
     expect(helper).toContain("return not address.is_global");
     expect(helper).not.toContain('int(text.split(".")[1]');
   });
+
+  it("guards browser requests and redirect landings against non-public hosts", () => {
+    expect(helper).toContain("async def _guard_browser_request");
+    expect(helper).toContain("page_setup=self._install_public_route_guard");
+    expect(helper).toContain("redirected to a non-public address");
+    expect(helper).toContain("import socket");
+    expect(helper).toContain("[A-Za-z0-9_-]{1,32}");
+  });
 });

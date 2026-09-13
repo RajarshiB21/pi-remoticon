@@ -39,7 +39,7 @@ pip install -r lib/research/requirements.txt
 playwright install chromium
 ```
 
-pi finds that environment by itself. It uses `PI_REMOTICON_PYTHON` first when you have set it, otherwise it checks the ordinary `python` on PATH and then looks for conda environments named `scrapling`; only an interpreter that can actually see `scrapling` and `orjson` is used. There is no shell setup to remember. Set `PI_REMOTICON_PYTHON` only when the environment has a different name or lives somewhere unusual. The known-good interpreter on this machine is `C:\Users\rajar\miniconda3\envs\scrapling\python.exe`; no absolute interpreter path is embedded in the code. `scrapling==0.4.15` is pinned because the helper uses Scrapling internals that move between releases.
+pi finds that environment by itself. When `PI_REMOTICON_PYTHON` is set its interpreter is used as given; otherwise `python` on PATH and conda environments named `scrapling` are checked in turn, and the first one that can see both packages wins. If none can, the fetch fails and says what to install. There is no shell setup to remember. Set `PI_REMOTICON_PYTHON` only when the environment has a different name or lives somewhere unusual. The known-good interpreter on this machine is `C:\Users\rajar\miniconda3\envs\scrapling\python.exe`; no absolute interpreter path is embedded in the code. `scrapling==0.4.15` is pinned because the helper uses Scrapling internals that move between releases.
 
 ## Development
 

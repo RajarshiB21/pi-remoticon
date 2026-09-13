@@ -55,14 +55,16 @@ function sectionFor(index: number, total: number, page: PageRecord, attempts: At
 	lines.push(`  selector: ${page.selector ? JSON.stringify(page.selector) + (page.selectorApplied ? " (applied)" : " (unapplied)") : "none"}`);
 	if (page.content != null && page.content.length > 0) {
 		lines.push("  sanitized markdown:");
-		for (const line of page.content.split("\n")) lines.push(`  ${line}`);
+		// Per line: stripControlSequences removes newlines too, and the markdown
+		// structure must survive into the model text.
+		for (const line of page.content.split("\n")) lines.push(`  ${stripControlSequences(line)}`);
 	}
 	if (page.capturedXhr !== null && page.capturedXhr !== undefined && page.capturedXhr.length > 0) {
 		lines.push(`  captured xhr (${page.capturedXhr.length} response${page.capturedXhr.length === 1 ? "" : "s"}):`);
 		for (const entry of page.capturedXhr) {
 			lines.push(`    [${safeUrl(entry.url)}] (${entry.status ?? "no status"}, ${formatSize(entry.bytes)})`);
 			if (entry.content) {
-				for (const line of entry.content.split("\n")) lines.push(`      ${line}`);
+				for (const line of entry.content.split("\n")) lines.push(`      ${stripControlSequences(line)}`);
 			}
 			if (entry.truncated) lines.push(`      [entry truncated for the model: ${formatSize(entry.bytes)} total]`);
 		}

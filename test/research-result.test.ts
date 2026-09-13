@@ -40,6 +40,13 @@ describe("buildModelResult", () => {
     expect(totalTruncated).toBe(true);
     expect(text).toContain("[fetch output truncated for the model:");
   });
+
+  it("keeps control sequences out of the model text without eating line breaks", () => {
+    const hostile = page({ content: "first\nsanitized\u001b[2Jsecond\nthird" });
+    const { text } = buildModelResult(batch([hostile]), []);
+    expect(text).not.toContain("\x1b[2J");
+    expect(text).toContain("sanitizedsecond\n  third");
+  });
 });
 
 describe("details and failure helpers", () => {
