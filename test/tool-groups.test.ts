@@ -193,3 +193,46 @@ it("groups original rows across empty turns, splits owned rows at late content a
   }
   expect(operations.render(120).map(stripVTControlCharacters).join("\n")).toContain("Ran 2 searches · listed 2 directories");
 });
+
+it("shows an extension-supplied group summary from the first update to settle", () => {
+  initTheme("dark", false);
+  const groups = createToolGroups({ Container, AssistantMessageComponent, getTheme: () => theme, truncateToWidth, resolvePath: resolveToCwd, skillLines: createSkillPresenter({ getTheme: () => theme, truncateToWidth, wrapTextWithAnsi }) });
+  const chat = new Container();
+  let callId = 100;
+  const makeRow = (name = "fetch") => {
+    const native = new ToolExecutionComponent(name, String(++callId), {}, {}, {
+      renderCall: () => new Text("call", 0, 0),
+      renderResult: () => new Text("body", 0, 0),
+    }, { requestRender() {} } as TUI, process.cwd());
+    const row = native as unknown as Parameters<typeof groups.add>[1] & { updateDisplay(): void };
+    const display = row.updateDisplay.bind(row);
+    row.updateDisplay = () => { try { display(); } finally { row.remoticonChanged?.(); } };
+    return { native, row };
+  };
+  const plain = (group: InstanceType<typeof groups.Group>) => group.render(120).map(stripVTControlCharacters).join("\n");
+
+  const first = makeRow();
+  groups.add(chat, first.row);
+  const group = chat.children[0] as InstanceType<typeof groups.Group>;
+  expect(plain(group)).toContain("1 fetch call pending");
+
+  first.native.updateResult({ content: [{ type: "text", text: "ok" }], details: { groupSummary: "Fetching 3 pages…" }, isError: false }, true);
+  expect(plain(group)).toContain("Fetching 3 pages…");
+  first.native.updateResult({ content: [{ type: "text", text: "ok" }], details: { groupSummary: "Fetched 3 pages · 1 dead end" }, isError: false }, false);
+  expect(plain(group)).toContain("Fetched 3 pages · 1 dead end");
+
+  const second = makeRow();
+  groups.add(chat, second.row);
+  second.native.updateResult({ content: [{ type: "text", text: "ok" }], details: { groupSummary: "Fetched 2 pages" }, isError: false }, true);
+  expect(plain(group)).toContain("Fetched 3 pages · 1 dead end · Fetched 2 pages");
+
+  groups.stop(chat);
+  expect(plain(group)).toContain("Fetched 3 pages · 1 dead end · Fetched 2 pages");
+  expect(plain(group)).not.toContain("Stopped");
+
+  const read = makeRow("read");
+  (read.row as unknown as { args: unknown }).args = { path: "a.ts" };
+  groups.add(chat, read.row);
+  groups.stop(chat);
+  expect(plain(group)).toContain("Stopped · Fetched 3 pages · 1 dead end · Fetched 2 pages · 1 read interrupted");
+});
