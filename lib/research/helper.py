@@ -326,9 +326,11 @@ class ResearchSpider(Spider):
     async def _guard_browser_request(self, route) -> None:
         """Refuse browser requests to hosts that do not resolve publicly.
 
-        Installed with page_setup, so it runs before navigation and also
-        covers redirects and background requests. Everything it allows falls
-        through to Scrapling's own resource/domain interceptor.
+        Installed with page_setup, so it runs before navigation and applies to
+        every request the page itself makes. Server redirects are not routed by
+        Playwright (verified live in 1.62), so the landed URL is checked in
+        parse() instead. Everything this guard allows falls through to
+        Scrapling's own resource/domain interceptor.
         """
         if route.request.resource_type in EXTRA_RESOURCES:
             await route.fallback()
