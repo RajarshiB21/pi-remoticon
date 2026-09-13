@@ -25,7 +25,7 @@ export function validateTargetUrl(url: string): Error | null {
 	if (parsed.username || parsed.password) {
 		return new Error("target URL embeds credentials");
 	}
-	const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+	const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
 	const loopbackAllowed = process.env.PI_RESEARCH_TEST_ALLOW_LOOPBACK === "1";
 	if (host === "" || host === "." || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
 		if (!loopbackAllowed) return new Error(`target host ${JSON.stringify(host)} is not public`);
@@ -144,7 +144,7 @@ function isPrivateIpv6(bare: string): boolean {
 }
 
 export function isPrivateAddress(host: string): boolean {
-	const bare = host.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+	const bare = host.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase();
 	const v4 = bare.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
 	if (v4) {
 		const a = Number(v4[1]);

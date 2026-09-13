@@ -19,6 +19,7 @@ describe("validateTargetUrl", () => {
     expect(validateTargetUrl("http://10.0.0.5/")?.message).toMatch(/private|not public/);
     expect(validateTargetUrl("http://[::1]/")?.message).toMatch(/private|not public/);
     expect(validateTargetUrl("http://localhost./")?.message).toMatch(/not public/);
+    expect(validateTargetUrl("http://localhost../")?.message).toMatch(/not public/);
     expect(validateTargetUrl("http://[::ffff:127.0.0.1]/")?.message).toMatch(/private|not public/);
     expect(validateTargetUrl("http://[::]/")?.message).toMatch(/private|not public/);
     expect(validateTargetUrl("http://[ff02::1]/")?.message).toMatch(/private|not public/);
