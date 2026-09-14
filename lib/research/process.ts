@@ -301,6 +301,13 @@ export function runHelper(
 					settle("reject", error);
 					return;
 				}
+				if (completingEvent !== null) {
+					// A terminal event is final: anything after it is a protocol
+					// violation, and the first reported outcome must stand.
+					killProcessTree(spawned);
+					settle("reject", new Error(`helper emitted ${event.type} after ${completingEvent}`));
+					return;
+				}
 				if (event.type === "batch_finished" || event.type === "fatal_error") {
 					completingEvent = event.type;
 				}

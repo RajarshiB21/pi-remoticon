@@ -307,8 +307,12 @@ class ResearchSpider(Spider):
         """True only when every address the host resolves to is globally routable.
 
         Resolution failures count as non-public: a host this machine cannot
-        resolve is not one to connect to. Cached per batch.
+        resolve is not one to connect to. The documented test gate admits the
+        loopback forms its offline fixtures use. Cached per batch.
         """
+        host = host.lower().rstrip(".")
+        if os.environ.get("PI_RESEARCH_TEST_ALLOW_LOOPBACK") == "1" and host in {"localhost", "127.0.0.1", "::1"}:
+            return True
         cached = self._host_public.get(host)
         if cached is not None:
             return cached

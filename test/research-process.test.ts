@@ -179,6 +179,15 @@ describe("runHelper", () => {
     await expect(run.completion).rejects.toBeInstanceOf(HelperCancelledError);
   });
 
+  it("rejects any event that follows a terminal event", async () => {
+    const run = runHelper(request(), undefined, undefined, () => nodeHelper([
+      BATCH_STARTED,
+      'emit({ type: "fatal_error", batchId: null, error: "boom" });',
+      'emit({ type: "batch_finished", completedAt: 2, browserMode: "none", autoThrottle: { enabled: true, startDelayMs: 250, maxDelayMs: 30000, blockBackoff: true, observedDelays: {} }, stats: { blockedCount: 0, failedCount: 0, requestCount: 0 }, pages: [] });',
+    ].join("\n")));
+    await expect(run.completion).rejects.toThrow(/batch_finished after fatal_error/);
+  });
+
   it("rejects when the abort signal fires", async () => {
     const controller = new AbortController();
     const run = runHelper(request(), controller.signal, undefined, () => nodeHelper([
