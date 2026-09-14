@@ -38,6 +38,7 @@ export interface RenderableDetails {
 	pages?: PageRecord[];
 	attempts?: AttemptRecord[];
 	autoThrottle?: { enabled: boolean; startDelayMs: number; maxDelayMs: number; blockBackoff: boolean; observedDelays?: Record<string, number> } | null;
+	stats?: { blockedCount: number; failedCount: number; requestCount: number } | null;
 	browserMode?: "none" | "local" | "remote-cdp";
 	cancelled?: boolean;
 	live?: LiveRow[];
@@ -172,6 +173,7 @@ function laneGlyph(kind: Lane["kind"], settled: boolean, theme: RowTheme, elapse
 }
 
 function laneOutcome(page: PageRecord, theme: RowTheme): string {
+	if (page.cancelled) return theme.fg("warning", "cancelled");
 	if (page.error !== null) return theme.fg("error", `failed: ${shorten(page.error, 60)}`);
 	const status = page.finalStatus !== null ? String(page.finalStatus) : "no status";
 	if (page.usable) return theme.fg("success", `${status}${page.finalReason ? ` ${shorten(page.finalReason, 40)}` : ""}`);
@@ -210,14 +212,17 @@ function rungLine(lane: Lane, theme: RowTheme): string {
 		.join(` ${arrow} `);
 }
 
-function rungStrip(lane: Lane, theme: RowTheme): string | null {
+function rungStrip(lane: Lane, theme: RowTheme, stopped = false): string | null {
 	if (lane.attempts.length === 0) return null;
 	const parts = lane.attempts.map((attempt) => {
 		const status = attempt.status !== null ? String(attempt.status) : attempt.unusableSignal === "empty content" ? "empty" : "failed";
 		const color = attempt.status !== null && attempt.status < 400 ? "success" : "warning";
 		return theme.fg(color, `${attempt.tier} ${status}`);
 	});
-	const tail = lane.settled ? (lane.kind === "ok" ? theme.fg("success", " ✓") : "") : theme.fg("dim", " …");
+	// A page still climbing trails off; a cancelled one does not claim to be climbing.
+	const tail = !lane.settled
+		? stopped ? "" : theme.fg("dim", " …")
+		: lane.kind === "ok" ? theme.fg("success", " ✓") : "";
 	return parts.join(theme.fg("dim", " ⟶ ")) + tail;
 }
 
@@ -236,12 +241,20 @@ function evidenceLines(page: PageRecord, theme: RowTheme): string[] {
 	return lines;
 }
 
+/** Blocks seen in the attempt records so far, for the live receipt (spec §4.7). */
+function attemptBlockCount(lanes: Lane[]): number {
+	return lanes.reduce((total, lane) => total + lane.attempts.filter((attempt) => attempt.blockedSignal !== null).length, 0);
+}
+
 function receiptLines(details: RenderableDetails, lanes: Lane[], now: number, theme: RowTheme): string[] {
 	const parts: string[] = [];
 	const observed = Object.entries(details.autoThrottle?.observedDelays ?? {}).filter(([, ms]) => Number.isFinite(ms) && ms > 0).slice(0, 3);
 	if (observed.length > 0) parts.push(`throttle ${observed.map(([domain, ms]) => `${formatDuration(ms)} on ${shorten(domain, 40)}`).join(", ")}`);
 	if (details.browserMode !== undefined && details.browserMode !== "none") parts.push(`browser ${details.browserMode}`);
-	const blocks = lanes.reduce((total, lane) => total + lane.attempts.filter((attempt) => attempt.blockedSignal !== null).length, 0);
+	const blocks = details.pending === true
+		? attemptBlockCount(lanes)
+		// After settle the helper's own receipt is the authority (spec §4.7).
+		: details.stats?.blockedCount ?? attemptBlockCount(lanes);
 	if (blocks > 0) parts.push(`${blocks} block${blocks === 1 ? "" : "s"}`);
 	if (parts.length === 0) return [];
 	const startedAt = details.startedAt ?? null;
@@ -277,20 +290,28 @@ class FetchTree implements Component {
 
 	render(width: number): string[] {
 		const theme = this.theme;
+		const stopped = this.details.cancelled === true;
 		if (this.error !== null) return [truncateToWidth(`${LANE_PREFIX}└─ ${theme.fg("error", this.error)}`, width, "")];
-		if (this.details.cancelled === true) return [truncateToWidth(`${LANE_PREFIX}└─ ${theme.fg("warning", "Cancelled.")}`, width, "")];
 		const lanes = collectLanes(this.details);
-		if (lanes.length === 0) return [truncateToWidth(`${LANE_PREFIX}└─ ${theme.fg("warning", "no target record")}`, width, "")];
+		if (lanes.length === 0) {
+			// Nothing was ever recorded for a page: the note is the whole truth.
+			const note = stopped ? "Cancelled." : "no target record";
+			return [truncateToWidth(`${LANE_PREFIX}└─ ${theme.fg("warning", note)}`, width, "")];
+		}
 		const now = Date.now();
 		const lines: string[] = [];
-		lanes.forEach((lane, index) => lines.push(...this.laneLines(lane, index === lanes.length - 1, width, now)));
-		lines.push(...receiptLines(this.details, lanes, now, theme).map((line) => truncateToWidth(line, width, "")));
+		lanes.forEach((lane, index) => lines.push(...this.laneLines(lane, index === lanes.length - 1, width, now, stopped)));
+		// The receipt is dropped whole rather than cut: the width rule lists it
+		// above sizes, so a fragment of it must never displace a lane fact (spec §4.9).
+		for (const line of receiptLines(this.details, lanes, now, theme)) {
+			if (visibleWidth(line) <= width) lines.push(line);
+		}
 		return lines;
 	}
 
 	invalidate(): void {}
 
-	private laneLines(lane: Lane, last: boolean, width: number, now: number): string[] {
+	private laneLines(lane: Lane, last: boolean, width: number, now: number, stopped: boolean): string[] {
 		const theme = this.theme;
 		const head = `${LANE_PREFIX}${last ? "└─ " : "├─ "}`;
 		const body = last ? LANE_LAST : LANE_MID;
@@ -299,39 +320,45 @@ class FetchTree implements Component {
 			? theme.fg("muted", ` (final ${shrinkUrl(lane.page.finalUrl)})`)
 			: "";
 		const lines: string[] = [];
+		const push = (text: string): void => { lines.push(truncateToWidth(text, width, "")); };
 
-		if (!lane.settled) {
-			lines.push(truncateToWidth(`${head}${url}${final}`, width, ""));
+		if (!lane.settled && !stopped) {
+			push(`${head}${url}${final}`);
 			const ceiling = typeof this.details.maxBlockedRetries === "number" ? this.details.maxBlockedRetries + 1 : null;
 			const position = ceiling === null ? `rung ${lane.attempts.length + 1}` : `rung ${Math.min(lane.attempts.length + 1, ceiling)} of ${ceiling}`;
 			const seconds = this.details.startedAt !== null && this.details.startedAt !== undefined ? (now - this.details.startedAt) / 1000 : 0;
-			lines.push(truncateToWidth(`${body}${laneGlyph(lane.kind, false, theme, seconds)} ${theme.fg("muted", position)}`, width, ""));
-			if (lane.attempts.length > 0) lines.push(truncateToWidth(`${body}${theme.fg("dim", "└ ")}${rungLine(lane, theme)}`, width, ""));
+			const detail = `${body}${laneGlyph(lane.kind, false, theme, seconds)} ${theme.fg("muted", position)}`;
+			// The strip carries the climb, and is the first thing a narrow row drops.
+			const strip = width < NARROW ? null : rungStrip(lane, theme);
+			lines.push(fit(strip === null ? [detail] : [`${detail}   ${strip}`, detail], width));
+			if (lane.attempts.length > 0) push(`${body}${theme.fg("dim", "└ ")}${rungLine(lane, theme)}`);
 			return lines;
 		}
 
 		const page = lane.page;
-		if (page === undefined) {
-			// Settled without a page record: the state is known, the facts are not.
-			lines.push(truncateToWidth(`${head}${url}${final}`, width, ""));
-			const color = lane.kind === "ok" ? "success" : lane.kind === "bad" ? "error" : "warning";
-			lines.push(truncateToWidth(`${body}${laneGlyph(lane.kind, true, theme, 0)} ${theme.fg(color, kindWord(lane.kind))}`, width, ""));
-			return lines;
-		}
 		const glyph = laneGlyph(lane.kind, true, theme, 0);
-		const outcome = laneOutcome(page, theme);
-		const sizes = laneSizes(page, theme);
+		const outcome = page === undefined && lane.settled
+			? theme.fg(lane.kind === "ok" ? "success" : lane.kind === "bad" ? "error" : "warning", kindWord(lane.kind))
+			: page === undefined
+				? theme.fg("warning", "cancelled")
+				: laneOutcome(page, theme);
+		const sizes = page === undefined ? null : laneSizes(page, theme);
 		const durationMs = laneDurationMs(lane.attempts);
 		const duration = durationMs === null ? null : theme.fg("muted", formatDuration(durationMs));
-		const strip = rungStrip(lane, theme);
+		const strip = rungStrip(lane, theme, stopped);
 		const separator = theme.fg("dim", " · ");
-		const base = `${head}${url}${final}  ${glyph} `;
+		const facts = [outcome, sizes, duration].filter((part): part is string => part !== null);
 
 		if (width < NARROW) {
-			lines.push(truncateToWidth(`${head}${url}${final}`, width, ""));
-			lines.push(truncateToWidth(`${body}${glyph} ${outcome}`, width, ""));
+			push(`${head}${url}${final}`);
+			// The state moved onto its own line; the facts stay in drop order.
+			lines.push(fit([
+				`${body}${glyph} ${facts.join(separator)}`,
+				`${body}${glyph} ${[outcome, sizes].filter((part): part is string => part !== null).join(separator)}`,
+				`${body}${glyph} ${outcome}`,
+			], width));
 		} else {
-			const facts = [outcome, sizes, duration].filter((part): part is string => part !== null);
+			const base = `${head}${url}${final}  ${glyph} `;
 			lines.push(fit([
 				`${base}${facts.join(separator)}${strip === null ? "" : `   ${strip}`}`,
 				`${base}${facts.join(separator)}`,
@@ -339,8 +366,8 @@ class FetchTree implements Component {
 				`${base}${outcome}`,
 			], width));
 		}
-		if (lane.attempts.length >= 2) lines.push(truncateToWidth(`${body}${theme.fg("dim", "└ ")}${rungLine(lane, theme)}`, width, ""));
-		for (const evidence of evidenceLines(page, theme)) lines.push(truncateToWidth(`${body}${evidence}`, width, ""));
+		if (lane.attempts.length >= 2) push(`${body}${theme.fg("dim", "└ ")}${rungLine(lane, theme)}`);
+		if (page !== undefined) for (const evidence of evidenceLines(page, theme)) push(`${body}${evidence}`);
 		return lines;
 	}
 }

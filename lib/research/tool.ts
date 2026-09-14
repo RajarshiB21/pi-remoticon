@@ -102,26 +102,27 @@ const RV9_GUIDELINES = [
 	"After a fetch source is blocked after all attempts, move on and gather the same information from a different reachable surface rather than retrying the blocked endpoint through other tools.",
 ];
 
-interface PendingDetails {
-	pending: true;
-	cancelled: false;
+interface LiveFields {
 	live: LiveRow[];
 	/** Targets that already settled, so a finished lane paints its real facts. */
 	pages: PageRecord[];
 	attempts: AttemptRecord[];
-	groupSummary: string;
 	inlineBody: true;
 	startedAt: number | null;
 	maxBlockedRetries: number | null;
 	browserMode: "none" | "local" | "remote-cdp";
 }
 
-/** The live payload, exported so the offline tool test can assert it without a spawn. */
-export function pendingDetails(urls: string[], events: readonly HelperEvent[], settledCount: number): PendingDetails {
+interface PendingDetails extends LiveFields {
+	pending: true;
+	cancelled: false;
+	groupSummary: string;
+}
+
+/** Everything the tree paints from the events seen so far (spec §6.4). */
+function liveFields(urls: string[], events: readonly HelperEvent[]): LiveFields {
 	const started = batchStartedFrom(events);
 	return {
-		pending: true,
-		cancelled: false,
 		inlineBody: true,
 		live: liveRowsFromEvents(urls, events),
 		pages: events
@@ -130,10 +131,19 @@ export function pendingDetails(urls: string[], events: readonly HelperEvent[], s
 		attempts: events
 			.filter((event): event is Extract<HelperEvent, { type: "attempt_finished" }> => event.type === "attempt_finished")
 			.map((event) => event.attempt),
-		groupSummary: runningSummary(urls.length, settledCount),
 		startedAt: started?.startedAt ?? null,
 		maxBlockedRetries: started?.maxBlockedRetries ?? null,
 		browserMode: started?.browserMode ?? "none",
+	};
+}
+
+/** The live payload, exported so the offline tool test can assert it without a spawn. */
+export function pendingDetails(urls: string[], events: readonly HelperEvent[], settledCount: number): PendingDetails {
+	return {
+		...liveFields(urls, events),
+		pending: true,
+		cancelled: false,
+		groupSummary: runningSummary(urls.length, settledCount),
 	};
 }
 
@@ -161,8 +171,8 @@ function batchStartedFrom(events: readonly HelperEvent[]): Extract<HelperEvent, 
 	);
 }
 
-/** Test hook: swap the helper process for a stand-in. Never used in production. */
-type FetchHooks = { spawnForTest?: SpawnOverride };
+/** Test hooks: swap the helper process and shorten its deadline. Never used in production. */
+type FetchHooks = { spawnForTest?: SpawnOverride; deadlineMs?: number };
 
 /** Preserve completed targets when the hard helper deadline abandons a straggler. */
 export function finishDeadlineBatch(
@@ -309,13 +319,20 @@ export function registerFetchTool(pi: ExtensionAPI, hooks: FetchHooks = {}): voi
 						// Pending rows must never break the execution.
 					}
 				}
-			}, hooks.spawnForTest);
+			}, hooks.spawnForTest, hooks.deadlineMs);
 
 			let events: HelperEvent[];
 			try {
 				events = await run.completion;
 			} catch (error) {
 				if (error instanceof HelperDeadlineError) {
+					// A deadline that arrived before any batch started has no job to
+					// draw: the error row is the whole truth (spec §6.3).
+					if (batchStartedFrom(error.events) === undefined) {
+						await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
+						sessionTempDirs.delete(outputDir);
+						throw error;
+					}
 					const deadlineBatch = finishDeadlineBatch(request, error.events, error.timeoutMs);
 					events = [...error.events, deadlineBatch];
 				} else {
@@ -328,9 +345,13 @@ export function registerFetchTool(pi: ExtensionAPI, hooks: FetchHooks = {}): voi
 						const cancelledMs = startedAt !== null && cancelledAt > startedAt ? cancelledAt - startedAt : null;
 						return {
 							content: [{ type: "text", text: "fetch cancelled." }],
+							// The tree stays painted, with the lanes that settled before the
+							// cancel and its final duration (spec §6.5, §10.7).
 							details: {
 								batchId,
+								...liveFields(urls, collected),
 								cancelled: true,
+								completedAt: cancelledAt,
 								groupSummary: cancelledSummary(cancelledMs),
 							} satisfies Partial<FetchToolDetails> & { batchId: string; cancelled: true; groupSummary: string },
 						};

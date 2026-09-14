@@ -145,8 +145,79 @@ describe("the fetch tree", () => {
     const text = plain(row({ targets: [{ url: "https://example.com/" }] }, {
       details: details({ live: [{ targetId: "t0", requestedUrl: "https://example.com/", settled: true, kind: "bad" }], pending: true }),
     }, true));
-    expect(text).toContain("  └─ example.com/");
-    expect(text).toContain("       ✗ failed");
+    // The state is known and the facts are not, so it stays one line.
+    expect(text).toContain("  └─ example.com/  ✗ failed");
+  });
+
+  it("keeps a cancelled batch's settled lanes and states its final duration", () => {
+    const text = plain(row({ targets: [{ url: "https://www.reddit.com/r/X/" }, { url: "https://example.com/slow" }] }, {
+      details: details({
+        cancelled: true,
+        live: [
+          { targetId: "t0", requestedUrl: "https://www.reddit.com/r/SillyTavernAI/comments/1w3z0bb/marinara_preset/", settled: true, kind: "ok" },
+          { targetId: "t1", requestedUrl: "https://example.com/slow", settled: false, kind: "pending" },
+        ],
+        pages: [reddit],
+        attempts: [...climbed, attempt({ targetId: "t1", tier: "stealth", status: 403, blockedSignal: "cloudflare-challenge-platform", latencyMs: 900 })],
+      }),
+    }));
+    expect(text).toContain("  ├─ www.reddit.com/r/SillyTavernAI/comments/1w3…reset/");
+    expect(text).toContain("✓ 200 OK · 84.2KB → 42.1KB main");
+    expect(text).toContain("  └─ example.com/slow");
+    expect(text).toContain("  └─ example.com/slow  ✗ cancelled");
+    expect(text).not.toContain("◐");
+    // A cancelled lane must not keep claiming that it is still climbing.
+    expect(text).not.toContain("stealth 403 …");
+    expect(text).toContain("3 blocks");
+    expect(text).toContain("total 8.0s");
+  });
+
+  it("shows the climb on a lane that is still climbing", () => {
+    const text = plain(row({ targets: [{ url: "https://www.reddit.com/r/X/" }] }, {
+      details: details({
+        live: [{ targetId: "t0", requestedUrl: "https://www.reddit.com/r/X/", settled: false, kind: "pending" }],
+        attempts: climbed.slice(0, 2),
+        pending: true,
+      }),
+    }, true));
+    expect(text).toContain("  └─ www.reddit.com/r/X/");
+    expect(text).toContain("       ◐ rung 3 of 3   http 403 ⟶ http 403 …");
+  });
+
+  it("keeps sizes and durations when the narrow state line has room", () => {
+    const text = plain(row({ targets: [{ url: "https://example.com/" }] }, {
+      details: details({ pages: [page({ receivedBytes: 12_288, extractedBytes: 9216 })], attempts: [attempt({ latencyMs: 300, startedAt: 1000, completedAt: 1300 })] }),
+    }, false, 60));
+    expect(text).toContain("       ✓ 200 OK · 12.0KB → 9.0KB main · 300ms");
+  });
+
+  it("drops the receipt whole rather than cutting it", () => {
+    const loaded = details({
+      pages: [page()],
+      attempts: [attempt({ blockedSignal: "cloudflare" })],
+      browserMode: "local",
+      autoThrottle: { enabled: true, startDelayMs: 250, maxDelayMs: 30_000, blockBackoff: true, observedDelays: { "example.com": 1200 } },
+    });
+    const wide = plain(row({ targets: [{ url: "https://example.com/" }] }, { details: loaded }, false, 120));
+    expect(wide).toContain("  ── throttle 1.2s on example.com · browser local · 1 block · total 8.0s");
+    const narrow = plain(row({ targets: [{ url: "https://example.com/" }] }, { details: loaded }, false, 40));
+    expect(narrow).not.toContain("──");
+    expect(narrow).toContain("  └─ example.com/");
+  });
+
+  it("reads the settled block count from the helper's own receipt", () => {
+    const withStats = details({
+      pages: [page()],
+      attempts: climbed,
+      browserMode: "local",
+      stats: { blockedCount: 1, failedCount: 0, requestCount: 3 },
+    });
+    expect(plain(row({ targets: [{ url: "https://www.reddit.com/r/X/" }] }, { details: withStats }))).toContain("1 block ·");
+    // While the batch runs nothing has settled, so the attempts are the source.
+    const live = plain(row({ targets: [{ url: "https://www.reddit.com/r/X/" }] }, {
+      details: details({ live: [{ targetId: "t0", requestedUrl: "https://www.reddit.com/r/X/", settled: false, kind: "pending" }], attempts: climbed.slice(0, 2), browserMode: "local", pending: true }),
+    }, true));
+    expect(live).toContain("2 blocks ·");
   });
 
   it("names the ladder in use when one call carries several pages", () => {
