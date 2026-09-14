@@ -1,5 +1,5 @@
 /**
- * The fetch tree (docs/superpowers/specs/2026-09-14-research-tree-design.md §4–§5).
+ * The fetch tree: lanes, rungs, evidence and the receipt (§4–§5).
  *
  * A state-coloured ● marker at column 0, ├─/└─ lanes at column 2 whose content
  * starts at column 5, rung/detail/evidence lines at column 7, and one receipt

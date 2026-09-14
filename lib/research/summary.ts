@@ -3,8 +3,6 @@
  * this tool prints. The patched runtime shows these strings verbatim on the
  * group line, so they are plain text: no ANSI, no control characters, and they
  * are recomputed on every update.
- *
- * Spec: docs/superpowers/specs/2026-09-14-research-tree-design.md §5.2, §5.3.
  */
 import type { PageRecord } from "./protocol.js";
 
