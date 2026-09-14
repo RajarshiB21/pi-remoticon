@@ -81,6 +81,7 @@ describe("fetch payload", () => {
     const last = updates[updates.length - 1]!;
     expect(last.attempts).toHaveLength(1);
     expect(last.live).toEqual([{ targetId: "t0", requestedUrl: "https://example.com/", settled: true, kind: "ok" }]);
+    expect((last.pages as unknown[])).toHaveLength(1);
 
     expect(result.details.inlineBody).toBe(true);
     expect(result.details.startedAt).toBe(1000);

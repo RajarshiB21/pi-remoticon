@@ -106,6 +106,8 @@ interface PendingDetails {
 	pending: true;
 	cancelled: false;
 	live: LiveRow[];
+	/** Targets that already settled, so a finished lane paints its real facts. */
+	pages: PageRecord[];
 	attempts: AttemptRecord[];
 	groupSummary: string;
 	inlineBody: true;
@@ -122,6 +124,9 @@ export function pendingDetails(urls: string[], events: readonly HelperEvent[], s
 		cancelled: false,
 		inlineBody: true,
 		live: liveRowsFromEvents(urls, events),
+		pages: events
+			.filter((event): event is Extract<HelperEvent, { type: "target_finished" }> => event.type === "target_finished")
+			.map((event) => event.page),
 		attempts: events
 			.filter((event): event is Extract<HelperEvent, { type: "attempt_finished" }> => event.type === "attempt_finished")
 			.map((event) => event.attempt),
