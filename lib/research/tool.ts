@@ -25,7 +25,7 @@ import {
 import { allTargetsFailed, buildDetails, buildModelResult, firstFailureSummary, type FetchToolDetails } from "./result.js";
 import { validateBlockedDomains, validateCaptureXhr, validateTargetUrl } from "./validate.js";
 import { pageStateKind, renderFetchCall, renderFetchResult, type LiveRow } from "./row.js";
-import { CANCELLED_SUMMARY, runningSummary, settledSummary } from "./summary.js";
+import { cancelledSummary, runningSummary, settledSummary } from "./summary.js";
 
 export const FETCH_PARAMS = Type.Object({
 	targets: Type.Array(
@@ -283,6 +283,7 @@ export function registerFetchTool(pi: ExtensionAPI): void {
 					truncationPathReturned = truncationPathReturned || event.page.truncation.outputPath !== undefined;
 				}
 				if (!signal?.aborted) {
+					const settledCount = collected.filter((item) => item.type === "target_finished").length;
 					try {
 						onUpdate?.({
 							content: [{ type: "text", text: `Fetching ${urls.length} public ${urls.length === 1 ? "page" : "pages"}…` }],
@@ -290,7 +291,7 @@ export function registerFetchTool(pi: ExtensionAPI): void {
 								pending: true,
 								cancelled: false,
 								live: liveRowsFromEvents(urls, collected),
-								groupSummary: runningSummary(urls.length),
+								groupSummary: runningSummary(urls.length, settledCount),
 							} satisfies PendingDetails,
 						});
 					} catch {
@@ -313,7 +314,7 @@ export function registerFetchTool(pi: ExtensionAPI): void {
 					if (error instanceof HelperCancelledError || signal?.aborted) {
 						return {
 							content: [{ type: "text", text: "fetch cancelled." }],
-							details: { batchId, cancelled: true, groupSummary: CANCELLED_SUMMARY } satisfies Partial<FetchToolDetails> & { batchId: string; cancelled: true; groupSummary: string },
+							details: { batchId, cancelled: true, groupSummary: cancelledSummary(null) } satisfies Partial<FetchToolDetails> & { batchId: string; cancelled: true; groupSummary: string },
 						};
 					}
 					throw error instanceof Error ? error : new Error(String(error));
@@ -348,9 +349,18 @@ export function registerFetchTool(pi: ExtensionAPI): void {
 			}));
 			const model = buildModelResult({ ...batchFinished, pages: fullPages }, collectedAttempts);
 			const pages = batchFinished.pages;
+			// The helper's own clock, read from the event stream: the closure-assigned
+			// copy above is invisible to control-flow analysis after the await.
+			const batchStart = events.find(
+				(event): event is Extract<HelperEvent, { type: "batch_started" }> => event.type === "batch_started",
+			);
+			const batchMilliseconds =
+				batchStart !== undefined && batchFinished.completedAt > batchStart.startedAt
+					? batchFinished.completedAt - batchStart.startedAt
+					: null;
 			const details = {
 				...buildDetails(request, batchStarted ?? null, batchFinished, collectedAttempts, false),
-				groupSummary: settledSummary(pages),
+				groupSummary: settledSummary(pages, batchMilliseconds),
 			};
 
 			const keep = truncationPathReturned;
