@@ -5,13 +5,13 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 interface Assistant extends Component { remoticonVisible?: boolean; remoticonLastKind?: "text" | "thinking" | "notice"; remoticonVisibilityChanged?: () => void }
 interface ToolRow extends Component {
   toolName: string; expanded: boolean; isPartial: boolean; remoticonStopped?: boolean; args?: unknown; cwd?: string;
-  result?: { isError: boolean; content: { type: string; text?: string }[]; details?: { truncation?: { truncated?: boolean; firstLineExceedsLimit?: boolean }; groupSummary?: string } };
+  result?: { isError: boolean; content: { type: string; text?: string }[]; details?: { truncation?: { truncated?: boolean; firstLineExceedsLimit?: boolean }; groupSummary?: string; inlineBody?: boolean } };
   remoticonChanged?: () => void;
   setExpanded(expanded: boolean): void;
   setShowImages(show: boolean): void;
   setImageWidthCells(width: number): void;
 }
-interface Snapshot { name: string; state: "pending" | "done" | "failed" | "stopped"; error: string; path?: string; skill?: SkillState; groupSummary?: string }
+interface Snapshot { name: string; state: "pending" | "done" | "failed" | "stopped"; error: string; path?: string; skill?: SkillState; groupSummary?: string; inlineBody?: boolean }
 interface Entry { row: ToolRow; owner?: Assistant; snapshot: Snapshot; skills: ReadonlyMap<string, string> }
 
 /** Presentation only: retain original tool instances, results and execution order. */
@@ -32,7 +32,9 @@ export function createToolGroups(d: {
       !!row.result?.details?.truncation?.truncated || !!row.result?.details?.truncation?.firstLineExceedsLimit ||
       !!row.result?.content.some(block => block.type === "text" && /\n\n\[\d+ more lines in file\. Use offset=\d+ to continue\.\]$/.test(block.text ?? ""));
     const groupSummary = row.result?.details?.groupSummary;
-    return { name: row.toolName, state, error, path: path ? keyPath(path) : undefined, skill: name ? { name, state, error, partial } : undefined, groupSummary: typeof groupSummary === "string" && groupSummary.length > 0 ? groupSummary : undefined };
+    // D6: a row that paints its own body is never hidden by the group's state.
+    const inlineBody = row.result?.details?.inlineBody === true;
+    return { name: row.toolName, state, error, path: path ? keyPath(path) : undefined, skill: name ? { name, state, error, partial } : undefined, groupSummary: typeof groupSummary === "string" && groupSummary.length > 0 ? groupSummary : undefined, inlineBody: inlineBody || undefined };
   };
   const operations: Record<string, { done: string; pending: string; noun: string; file?: boolean }> = {
     read: { done: "read", pending: "reading", noun: "read", file: true },
@@ -144,7 +146,9 @@ export function createToolGroups(d: {
         lines.push(d.truncateToWidth(pad + styled, width, ""));
         if (segment.error) lines.push(d.truncateToWidth(pad + "  " + theme.fg("error", `! ${segment.error}`), width, ""));
         segment.bodyY = lines.length;
-        const body = segment.expanded ? segment.body.render(width) : [];
+        const body = segment.expanded
+          ? segment.body.render(width)
+          : segment.entries.filter(entry => entry.snapshot.inlineBody).flatMap(entry => entry.row.render(width));
         segment.height = body.length;
         lines.push(...body);
       }

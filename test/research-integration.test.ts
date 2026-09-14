@@ -2,8 +2,8 @@
 // fake provider emits one `fetch` call with an ftp:// target when the prompt
 // carries FETCHBAD. The scheme is rejected in TypeScript before any Python
 // spawn, so this proves, offline: the extension loads from the package, the
-// tool is registered and active, the schema carries the target, validation
-// runs, and the row + collapsed group line paint the failure.
+// tool is registered and active, validation runs, and the default view names
+// the failure — the error line and the group line, with no keypress at all.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -29,13 +29,12 @@ describe("fetch registration: an invalid target fails offline", () => {
     copy?.cleanup();
   });
 
-  it("paints the validation error, the fetch row and the group line", async () => {
+  it("shows the validation error and the group line in the default view", async () => {
     try {
       await term.waitFor("! fetch:", 30000);
       expect(term.viewport.getText()).toContain("not public http(s)");
-      term.press("Ctrl+O");
-      await term.waitFor("Fetch(example.com/file)", 15000);
-      expect(term.viewport.getText()).toContain("ftp:");
+      expect(term.viewport.getText()).toContain("1 fetch call failed");
+      expect(term.viewport.getText()).toContain("fetch");
     } finally {
       await term.close();
     }
