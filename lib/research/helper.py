@@ -78,13 +78,15 @@ AUTO_MAX_DELAY = 30.0
 HTTP_TIMEOUT = 5.0
 BROWSER_TIMEOUT_MS = 22_000
 ATTEMPT_TIMEOUT_SECONDS = {"http": 7.0, "dynamic": 22.0, "stealth": 22.0}
-# A known hard domain's wall is a JS challenge on a heavy page (measured live
-# 2026-09-14: r/SillyTavernAI HTML exceeded the 22s Stealth ceiling three times
-# over, while a light reddit page cleared in the same batch). The tier that
-# clears that wall needs a real budget, and only batches touching such a domain
-# pay for it.
-HARD_DOMAIN_BROWSER_TIMEOUT_MS = 35_000
-HARD_DOMAIN_ATTEMPT_SECONDS = 40.0
+# A known hard domain's wall is a JS challenge on a heavy page. Measured live
+# 2026-09-14: r/SillyTavernAI cleared in 15.9s (listing) and 10.0s (comment
+# thread) once the browser stopped waiting for network idle, so the tier that
+# clears that wall gets more than the 22s default. Both numbers stay inside the
+# caller's 40s budget (DEFAULT_HELPER_DEADLINE_MS): a ceiling at or above that
+# budget means the tool kills the batch before the rung can report, and the user
+# gets a blanket "the page never arrived" instead of the rung's own reason.
+HARD_DOMAIN_BROWSER_TIMEOUT_MS = 30_000
+HARD_DOMAIN_ATTEMPT_SECONDS = 34.0
 PER_TARGET_CEILING = 16 * 1024
 XHR_ENTRY_CEILING = 8 * 1024
 XHR_MAX_ENTRIES = 16

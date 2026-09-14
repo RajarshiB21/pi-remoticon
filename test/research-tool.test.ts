@@ -115,9 +115,13 @@ describe("fetch payload", () => {
   }, 30000);
 
   it("returns the tree when the deadline arrived after the batch started", async () => {
-    const tool = definitionWith([], { spawnForTest: () => helperEmitting([BATCH_STARTED], true), deadlineMs: 60 });
+    // The helper here is a real process, so its boot has to fit inside the deadline:
+    // at 60ms a loaded runner rejected before the batch started and the assertions
+    // below never ran. The process-level deadline test uses the same 2s margin.
+    const tool = definitionWith([], { spawnForTest: () => helperEmitting([BATCH_STARTED], true), deadlineMs: 2_000 });
     const result = await tool.execute("call-5", { targets: [{ url: "https://example.com/" }] }, undefined, () => undefined);
     const pages = result.details.pages as { error: string | null }[];
+    expect(result.details.startedAt).toBe(1000);
     expect(pages).toHaveLength(1);
     expect(pages[0]!.error).toMatch(/never arrived within/);
     expect(result.details.inlineBody).toBe(true);
