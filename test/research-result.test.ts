@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allTargetsFailed, buildDetails, buildModelResult, firstFailureSummary, summaryCounts } from "../lib/research/result.js";
+import { buildDetails, buildModelResult, summaryCounts } from "../lib/research/result.js";
 import { PROTOCOL_VERSION, type HelperRequest } from "../lib/research/protocol.js";
 import { attempt, batch, page } from "./helpers/research-fixtures.js";
 
@@ -50,16 +50,12 @@ describe("buildModelResult", () => {
 });
 
 describe("details and failure helpers", () => {
-  it("builds the receipt and names the first failure", () => {
+  it("builds the receipt", () => {
     const pages = [page({ usable: false, error: "connection reset" })];
     const details = buildDetails(request, null, batch(pages), [], false);
     expect(details.batchId).toBe("b-test");
     expect(details.pages).toHaveLength(1);
     expect(details.browserMode).toBe("none");
-    expect(allTargetsFailed(pages)).toBe(true);
-    expect(firstFailureSummary(pages)).toBe("https://example.com/");
-    expect(firstFailureSummary([page({ usable: false, error: "boom", requestedUrl: "https://example.com/\u001b[2Jx" })])).toBe("https://example.com/x");
     expect(summaryCounts(pages)).toBe("0 usable, 0 dead ends, 1 failed");
-    expect(allTargetsFailed([page()])).toBe(false);
   });
 });

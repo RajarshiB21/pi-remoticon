@@ -87,4 +87,20 @@ describe("fetch payload", () => {
     expect(result.details.completedAt).toBe(9000);
     expect(result.details.maxBlockedRetries).toBe(2);
   }, 30000);
+
+  it("returns the tree's details when the batch completed and nothing was usable", async () => {
+    const failing = [
+      BATCH_STARTED,
+      `emit({ type: "attempt_finished", attempt: { targetId: "t0", url: "https://example.com/", attempt: 1, tier: "http", status: null, reason: "connection reset", receivedBytes: null, latencyMs: 30, waitMs: null, retryAfterSeconds: null, blockedSignal: null, unusableSignal: null, startedAt: 1100, completedAt: 1130 } });`,
+      `emit({ type: "target_finished", page: { targetId: "t0", requestedUrl: "https://example.com/", finalUrl: null, selector: null, selectorApplied: false, finalStatus: null, finalReason: null, receivedBytes: null, extractedBytes: null, usedStealth: false, usedAdBlocking: false, blockedDomainsCount: 0, usable: false, deadEndReason: null, error: "connection reset", cancelled: false, content: null, capturedXhr: null, truncation: null, fullOutputPath: null } });`,
+      `emit({ type: "batch_finished", completedAt: 9000, browserMode: "none", autoThrottle: { enabled: true, startDelayMs: 250, maxDelayMs: 30000, blockBackoff: true, observedDelays: {} }, stats: { blockedCount: 0, failedCount: 1, requestCount: 1 }, pages: [{ targetId: "t0", requestedUrl: "https://example.com/", finalUrl: null, selector: null, selectorApplied: false, finalStatus: null, finalReason: null, receivedBytes: null, extractedBytes: null, usedStealth: false, usedAdBlocking: false, blockedDomainsCount: 0, usable: false, deadEndReason: null, error: "connection reset", cancelled: false, content: null, capturedXhr: null, truncation: null, fullOutputPath: null }], resources: { peakRssBytes: null, elapsedMs: 8000 } });`,
+    ];
+    const tool = definitionWith(failing);
+    const result = await tool.execute("call-2", { targets: [{ url: "https://example.com/" }] }, undefined, () => undefined);
+    const pages = result.details.pages as { usable: boolean }[];
+    expect(pages).toHaveLength(1);
+    expect(pages[0]!.usable).toBe(false);
+    expect(result.details.inlineBody).toBe(true);
+    expect(result.content[0]!.text).toContain("0 usable");
+  }, 30000);
 });

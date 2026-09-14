@@ -101,17 +101,6 @@ export function buildModelResult(batchFinished: BatchFinishedEvent, attempts: At
 	return { text: joined, totalTruncated: false };
 }
 
-export function allTargetsFailed(pages: PageRecord[]): boolean {
-	return pages.length > 0 && pages.every((page) => !page.usable);
-}
-
-export function firstFailureSummary(pages: PageRecord[]): string {
-	const first = pages.find((page) => page.error !== null) ?? pages[0];
-	if (first === undefined) return "no targets";
-	if (first.error !== null) return safeUrl(first.requestedUrl);
-	return `${safeUrl(first.requestedUrl)}: ${first.deadEndReason ?? "unusable"}`;
-}
-
 export interface FetchToolDetails {
 	protocolVersion: number;
 	batchId: string;

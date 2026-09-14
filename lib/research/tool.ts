@@ -22,7 +22,7 @@ import {
 	type HelperRequest,
 	type PageRecord,
 } from "./protocol.js";
-import { allTargetsFailed, buildDetails, buildModelResult, firstFailureSummary, type FetchToolDetails } from "./result.js";
+import { buildDetails, buildModelResult, type FetchToolDetails } from "./result.js";
 import { validateBlockedDomains, validateCaptureXhr, validateTargetUrl } from "./validate.js";
 import { pageStateKind, renderFetchCall, renderFetchResult, type LiveRow } from "./row.js";
 import { cancelledSummary, runningSummary, settledSummary } from "./summary.js";
@@ -116,9 +116,7 @@ interface PendingDetails {
 
 /** The live payload, exported so the offline tool test can assert it without a spawn. */
 export function pendingDetails(urls: string[], events: readonly HelperEvent[], settledCount: number): PendingDetails {
-	const started = events.find(
-		(event): event is Extract<HelperEvent, { type: "batch_started" }> => event.type === "batch_started",
-	);
+	const started = batchStartedFrom(events);
 	return {
 		pending: true,
 		cancelled: false,
@@ -151,6 +149,13 @@ function rowIndex(targetId: string): number {
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
 }
 
+/** The batch_started event, wherever it arrived first. */
+function batchStartedFrom(events: readonly HelperEvent[]): Extract<HelperEvent, { type: "batch_started" }> | undefined {
+	return events.find(
+		(event): event is Extract<HelperEvent, { type: "batch_started" }> => event.type === "batch_started",
+	);
+}
+
 /** Test hook: swap the helper process for a stand-in. Never used in production. */
 type FetchHooks = { spawnForTest?: SpawnOverride };
 
@@ -160,9 +165,7 @@ export function finishDeadlineBatch(
 	events: readonly HelperEvent[],
 	timeoutMs: number,
 ): BatchFinishedEvent {
-	const started = events.find(
-		(event): event is Extract<HelperEvent, { type: "batch_started" }> => event.type === "batch_started",
-	);
+	const started = batchStartedFrom(events);
 	const attempts = events
 		.filter((event): event is Extract<HelperEvent, { type: "attempt_finished" }> => event.type === "attempt_finished")
 		.map((event) => event.attempt);
@@ -283,11 +286,9 @@ export function registerFetchTool(pi: ExtensionAPI, hooks: FetchHooks = {}): voi
 			const urls = request.targets.map((target) => target.url);
 			const collected: HelperEvent[] = [];
 			const collectedAttempts: AttemptRecord[] = [];
-			let batchStarted: Extract<HelperEvent, { type: "batch_started" }> | null = null;
 
 			const run = runHelper(request, signal, (event) => {
 				collected.push(event);
-				if (event.type === "batch_started") batchStarted = event;
 				if (event.type === "attempt_finished") collectedAttempts.push(event.attempt);
 				if (event.type === "target_finished" && event.page.truncation?.truncated) {
 					truncationPathReturned = truncationPathReturned || event.page.truncation.outputPath !== undefined;
@@ -317,9 +318,16 @@ export function registerFetchTool(pi: ExtensionAPI, hooks: FetchHooks = {}): voi
 					await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
 					sessionTempDirs.delete(outputDir);
 					if (error instanceof HelperCancelledError || signal?.aborted) {
+						const cancelledAt = Date.now();
+						const startedAt = batchStartedFrom(collected)?.startedAt ?? null;
+						const cancelledMs = startedAt !== null && cancelledAt > startedAt ? cancelledAt - startedAt : null;
 						return {
 							content: [{ type: "text", text: "fetch cancelled." }],
-							details: { batchId, cancelled: true, groupSummary: cancelledSummary(null) } satisfies Partial<FetchToolDetails> & { batchId: string; cancelled: true; groupSummary: string },
+							details: {
+								batchId,
+								cancelled: true,
+								groupSummary: cancelledSummary(cancelledMs),
+							} satisfies Partial<FetchToolDetails> & { batchId: string; cancelled: true; groupSummary: string },
 						};
 					}
 					throw error instanceof Error ? error : new Error(String(error));
@@ -354,17 +362,14 @@ export function registerFetchTool(pi: ExtensionAPI, hooks: FetchHooks = {}): voi
 			}));
 			const model = buildModelResult({ ...batchFinished, pages: fullPages }, collectedAttempts);
 			const pages = batchFinished.pages;
-			// The helper's own clock, read from the event stream: the closure-assigned
-			// copy above is invisible to control-flow analysis after the await.
-			const batchStart = events.find(
-				(event): event is Extract<HelperEvent, { type: "batch_started" }> => event.type === "batch_started",
-			);
+			// The helper's own clock, read from the event stream.
+			const batchStart = batchStartedFrom(events);
 			const batchMilliseconds =
 				batchStart !== undefined && batchFinished.completedAt > batchStart.startedAt
 					? batchFinished.completedAt - batchStart.startedAt
 					: null;
 			const details = {
-				...buildDetails(request, batchStarted ?? null, batchFinished, collectedAttempts, false),
+				...buildDetails(request, batchStart ?? null, batchFinished, collectedAttempts, false),
 				groupSummary: settledSummary(pages, batchMilliseconds),
 			};
 
@@ -375,10 +380,11 @@ export function registerFetchTool(pi: ExtensionAPI, hooks: FetchHooks = {}): voi
 				sessionTempDirs.delete(outputDir);
 			}
 
-			if (allTargetsFailed(pages)) {
-				throw new Error(`all ${pages.length} fetch targets failed: ${firstFailureSummary(pages)}`);
-			}
-
+			// A batch that produced a receipt always returns its details, even when
+			// nothing was usable: pi has no error channel that keeps details, and a
+			// thrown batch would lose the tree in exactly the case it is needed
+			// (spec §6.3). The red marker, the header counts and the model text
+			// carry the failure.
 			return {
 				content: [{ type: "text", text: model.text }],
 				details,
