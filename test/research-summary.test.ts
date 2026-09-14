@@ -37,7 +37,7 @@ describe("fetch group-line strings", () => {
     expect(formatDuration(1000)).toBe("1.0s");
     expect(formatDuration(12_340)).toBe("12.3s");
     for (const line of [runningSummary(8, 4), settledSummary([page()], 5400), cancelledSummary(6400)]) {
-      expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+      expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/); // eslint-disable-line no-control-regex
       expect(line).not.toContain("\x1b");
     }
   });

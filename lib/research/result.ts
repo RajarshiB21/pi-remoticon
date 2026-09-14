@@ -5,7 +5,7 @@
  * truthful truncation notice and a sanitized temp path when truncated.
  */
 
-import type { BatchFinishedEvent, HelperRequest, PageRecord } from "./protocol.js";
+import type { BatchFinishedEvent, BatchStartedEvent, HelperRequest, PageRecord } from "./protocol.js";
 import type { AttemptRecord } from "./protocol.js";
 import { pageLadder, stripControlSequences } from "./protocol.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
@@ -125,11 +125,15 @@ export interface FetchToolDetails {
 	startedAt: number | null;
 	completedAt: number | null;
 	cancelled: boolean;
+	/** The row paints its own body; the tree has no hidden form (spec §3). */
+	inlineBody: true;
+	/** The helper's ladder ceiling, so "rung 2 of 3" is never invented (spec §5.3). */
+	maxBlockedRetries: number | null;
 }
 
 export function buildDetails(
 	request: HelperRequest,
-	batchStarted: { browserMode: BatchFinishedEvent["browserMode"]; globalConcurrency: number; perDomainConcurrency: number } | null,
+	batchStarted: Pick<BatchStartedEvent, "browserMode" | "globalConcurrency" | "perDomainConcurrency" | "startedAt" | "maxBlockedRetries"> | null,
 	batchFinished: BatchFinishedEvent | null,
 	attempts: AttemptRecord[],
 	cancelled: boolean,
@@ -145,8 +149,10 @@ export function buildDetails(
 		pages: batchFinished?.pages ?? [],
 		attempts,
 		stats: batchFinished?.stats ?? null,
-		startedAt: null,
+		startedAt: batchStarted?.startedAt ?? null,
 		completedAt: batchFinished?.completedAt ?? null,
 		cancelled,
+		inlineBody: true,
+		maxBlockedRetries: batchStarted?.maxBlockedRetries ?? null,
 	};
 }

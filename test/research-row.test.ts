@@ -88,10 +88,10 @@ it("indents truncation and captured-xhr evidence under their target, and shows t
 
 it("paints the running marker violet, repaints on settle, and never paints a background", () => {
   const running = row({ targets: [{ url: "https://example.com/" }] }, {
-    details: details({ live: [{ requestedUrl: "https://www.reddit.com/r/X/", state: "attempt 1 (http): 403", kind: "bad" }], pending: true }),
+    details: details({ live: [{ targetId: "t0", requestedUrl: "https://www.reddit.com/r/X/", settled: false, kind: "bad" }], pending: true }),
   }, true);
   expect(running.join("\n")).toContain("\x1b[38;2;185;165;232m");
-  expect(plain(running)).toContain("  └ www.reddit.com/r/X/  attempt 1 (http): 403");
+  expect(plain(running)).toContain("  └ www.reddit.com/r/X/  fetching…");
 
   const settled = row({ targets: [{ url: "https://example.com/" }] }, { details: details({ pages: [page()] }) });
   expect(settled.join("\n")).toContain(theme.fg("success", "●"));

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { HelperCancelledError, HelperDeadlineError, runHelper } from "./process.js";
+import { HelperCancelledError, HelperDeadlineError, runHelper, type SpawnOverride } from "./process.js";
 import {
 	newBatchId,
 	PROTOCOL_VERSION,
@@ -106,31 +106,42 @@ interface PendingDetails {
 	pending: true;
 	cancelled: false;
 	live: LiveRow[];
+	attempts: AttemptRecord[];
 	groupSummary: string;
+	inlineBody: true;
+	startedAt: number | null;
+	maxBlockedRetries: number | null;
+	browserMode: "none" | "local" | "remote-cdp";
 }
 
-function liveRowsFromEvents(urls: string[], events: HelperEvent[]): LiveRow[] {
-	const rows: LiveRow[] = urls.map((url) => ({ requestedUrl: url, state: "fetching…", kind: "pending" as const }));
+/** The live payload, exported so the offline tool test can assert it without a spawn. */
+export function pendingDetails(urls: string[], events: readonly HelperEvent[], settledCount: number): PendingDetails {
+	const started = events.find(
+		(event): event is Extract<HelperEvent, { type: "batch_started" }> => event.type === "batch_started",
+	);
+	return {
+		pending: true,
+		cancelled: false,
+		inlineBody: true,
+		live: liveRowsFromEvents(urls, events),
+		attempts: events
+			.filter((event): event is Extract<HelperEvent, { type: "attempt_finished" }> => event.type === "attempt_finished")
+			.map((event) => event.attempt),
+		groupSummary: runningSummary(urls.length, settledCount),
+		startedAt: started?.startedAt ?? null,
+		maxBlockedRetries: started?.maxBlockedRetries ?? null,
+		browserMode: started?.browserMode ?? "none",
+	};
+}
+
+function liveRowsFromEvents(urls: string[], events: readonly HelperEvent[]): LiveRow[] {
+	const rows: LiveRow[] = urls.map((url, index) => ({ targetId: `t${index}`, requestedUrl: url, settled: false, kind: "pending" as const }));
 	for (const event of events) {
-		if (event.type === "attempt_finished") {
-			const index = rowIndex(event.attempt.targetId);
-			const row = rows[index];
-			if (!row) continue;
-			const statusText = event.attempt.status !== null ? String(event.attempt.status) : "request failed";
-			row.state = `attempt ${event.attempt.attempt} (${event.attempt.tier}): ${statusText}`;
-		} else if (event.type === "target_finished") {
-			const index = rowIndex(event.page.targetId);
-			const row = rows[index];
-			if (!row) continue;
-			row.kind = pageStateKind(event.page);
-			/* State text is derived by the renderer from pages on completion;
-			   pending rows only need a short truthful note. */
-			row.state = event.page.usable
-				? "received"
-				: event.page.error !== null
-					? `error: ${truncateLine(event.page.error, 80)}`
-					: event.page.deadEndReason ?? "unusable";
-		}
+		if (event.type !== "target_finished") continue;
+		const row = rows[rowIndex(event.page.targetId)];
+		if (!row) continue;
+		row.settled = true;
+		row.kind = pageStateKind(event.page);
 	}
 	return rows;
 }
@@ -140,9 +151,8 @@ function rowIndex(targetId: string): number {
 	return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
 }
 
-function truncateLine(text: string, max: number): string {
-	return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
+/** Test hook: swap the helper process for a stand-in. Never used in production. */
+type FetchHooks = { spawnForTest?: SpawnOverride };
 
 /** Preserve completed targets when the hard helper deadline abandons a straggler. */
 export function finishDeadlineBatch(
@@ -215,7 +225,7 @@ export function finishDeadlineBatch(
 	};
 }
 
-export function registerFetchTool(pi: ExtensionAPI): void {
+export function registerFetchTool(pi: ExtensionAPI, hooks: FetchHooks = {}): void {
 	pi.registerTool({
 		name: "fetch",
 		label: "Fetch",
@@ -287,18 +297,13 @@ export function registerFetchTool(pi: ExtensionAPI): void {
 					try {
 						onUpdate?.({
 							content: [{ type: "text", text: `Fetching ${urls.length} public ${urls.length === 1 ? "page" : "pages"}…` }],
-							details: {
-								pending: true,
-								cancelled: false,
-								live: liveRowsFromEvents(urls, collected),
-								groupSummary: runningSummary(urls.length, settledCount),
-							} satisfies PendingDetails,
+							details: pendingDetails(urls, collected, settledCount) satisfies PendingDetails,
 						});
 					} catch {
 						// Pending rows must never break the execution.
 					}
 				}
-			});
+			}, hooks.spawnForTest);
 
 			let events: HelperEvent[];
 			try {

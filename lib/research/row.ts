@@ -33,8 +33,9 @@ export interface RenderableDetails {
 }
 
 export interface LiveRow {
+	targetId: string;
 	requestedUrl: string;
-	state: string;
+	settled: boolean;
 	kind: "pending" | "ok" | "warn" | "bad";
 }
 
@@ -159,8 +160,9 @@ function throttleLine(details: RenderableDetails, theme: RowTheme): string | nul
 }
 
 function liveState(live: LiveRow, theme: RowTheme): string {
-	const color = live.kind === "ok" ? "success" : live.kind === "bad" ? "error" : live.kind === "warn" ? "warning" : "muted";
-	return theme.fg(color, stripControlSequences(live.state));
+	if (!live.settled) return theme.fg("muted", "fetching…");
+	const color = live.kind === "ok" ? "success" : live.kind === "bad" ? "error" : "warning";
+	return theme.fg(color, live.kind === "ok" ? "received" : live.kind === "bad" ? "failed" : "unusable");
 }
 
 function errorHeadline(result: { content?: unknown }): string {
