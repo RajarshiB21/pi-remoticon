@@ -78,6 +78,13 @@ AUTO_MAX_DELAY = 30.0
 HTTP_TIMEOUT = 5.0
 BROWSER_TIMEOUT_MS = 22_000
 ATTEMPT_TIMEOUT_SECONDS = {"http": 7.0, "dynamic": 22.0, "stealth": 22.0}
+# A known hard domain's wall is a JS challenge on a heavy page (measured live
+# 2026-09-14: r/SillyTavernAI HTML exceeded the 22s Stealth ceiling three times
+# over, while a light reddit page cleared in the same batch). The tier that
+# clears that wall needs a real budget, and only batches touching such a domain
+# pay for it.
+HARD_DOMAIN_BROWSER_TIMEOUT_MS = 35_000
+HARD_DOMAIN_ATTEMPT_SECONDS = 40.0
 PER_TARGET_CEILING = 16 * 1024
 XHR_ENTRY_CEILING = 8 * 1024
 XHR_MAX_ENTRIES = 16
@@ -368,11 +375,14 @@ class ResearchSpider(Spider):
             "block_ads": True,
             "blocked_domains": self._blocked_domains or None,
             "retries": 1,
-            "timeout": BROWSER_TIMEOUT_MS,
+            "timeout": HARD_DOMAIN_BROWSER_TIMEOUT_MS if self._hard_domains_present() else BROWSER_TIMEOUT_MS,
             "max_pages": GLOBAL_CONCURRENCY,
             "cdp_url": CDP_URL,
         }
         if self._request.get("captureXhr"):
+            # The Dynamic tier exists for one reason: capturing background XHR.
+            # Nothing else may request it, or a batch asks for a session that was
+            # never registered (the KeyError users saw on reddit.com).
             manager.add(
                 "dynamic",
                 # wait=800: a short settle beat so background fetch/XHR
@@ -404,9 +414,12 @@ class ResearchSpider(Spider):
             # verified 2026-08-30) 403 the plain-HTTP rung at the bot wall
             # every time, so the first attempt is a wasted round-trip and an
             # extra block signal. Open those directly on the browser rung;
-            # the receipt records the decision honestly.
+            # the receipt records the decision honestly. That rung is Stealth,
+            # not Dynamic: measured 2026-09-14, the Dynamic tier never clears
+            # this wall while Stealth does, and a rung that cannot succeed is
+            # a rung's worth of wall-clock wasted.
             if tier == "http" and self._is_known_hard_domain(target["url"]):
-                tier = "dynamic"
+                tier = "stealth"
                 kwargs = self._browser_kwargs(target)
             yield Request(
                 target["url"],
@@ -430,15 +443,30 @@ class ResearchSpider(Spider):
         host = host.lower().rstrip(".")
         return any(host == d or host.endswith("." + d) for d in self.KNOWN_HARD_DOMAINS)
 
+    def _hard_domains_present(self) -> bool:
+        """True when any target is a known hard domain, so the batch as a whole
+        (its browser sessions are one pool per tier) needs the longer budget."""
+        return any(self._is_known_hard_domain(str(target.get("url", ""))) for target in self._request["targets"])
+
     def _browser_kwargs(self, target: dict | None) -> dict:
         """RV-5: the wider session surface on browser rungs. network_idle
         waits for the page to settle, disable_resources drops fonts/images/
         media for speed (XHR/fetch is NOT dropped, so captureXhr stays
         intact), and wait_selector waits for the target's own selector when
-        one was given."""
-        kwargs: dict = {"network_idle": True, "disable_resources": True}
+        one was given.
+
+        A known hard domain never reaches network idle: measured live
+        2026-09-14, r/SillyTavernAI exceeded a 40s ceiling three times over
+        while waiting for it, and the same domain's light pages cleared
+        immediately. Those pages get a bounded settle beat instead.
+        """
+        url = str((target or {}).get("url", ""))
+        kwargs: dict = {"network_idle": False, "wait": 1500} if self._is_known_hard_domain(url) else {"network_idle": True}
+        kwargs["disable_resources"] = True
         selector = ((target or {}).get("selector") or "").strip()
         if selector:
+            # A named element is a better readiness signal than a blind beat.
+            kwargs.pop("wait", None)
             kwargs["wait_selector"] = selector
         return kwargs
 
@@ -480,10 +508,17 @@ class ResearchSpider(Spider):
             started = time.time()
             tier = str(req.sid) or "http"
             ceiling = ATTEMPT_TIMEOUT_SECONDS.get(tier, 35.0)
+            # The Stealth rung on a hard domain is the one that has to work, and
+            # it is heavy: give it the budget its session also carries.
+            if tier in ("dynamic", "stealth") and self._is_known_hard_domain(str(req.url)):
+                ceiling = HARD_DOMAIN_ATTEMPT_SECONDS
             try:
                 response = await asyncio.wait_for(orig_fetch(req), timeout=ceiling)
             except asyncio.TimeoutError as error:
-                raise TimeoutError(f"{tier} attempt exceeded {ceiling:g} seconds") from error
+                # Plain words: the tier names are internal vocabulary, and the row
+                # shows this sentence to whoever is reading the transcript.
+                label = "the browser" if tier in ("dynamic", "stealth") else "the request"
+                raise TimeoutError(f"{label} ran out of time after {ceiling:g} seconds") from error
             elapsed_ms = round((time.time() - started) * 1000, 1)
             latest = getattr(self, "_latest_delays", {})
             wait_ms = round(latest.get(req.domain, 0.0) * 1000, 1)
@@ -573,7 +608,7 @@ class ResearchSpider(Spider):
         if blocked and request is not None and request._retry_count >= self.max_blocked_retries:
             reason = f"blocked after {attempt} attempts"
             if tier == "stealth":
-                reason += ", including stealth"
+                reason += ", including the browser"
             self._finalize_page(target_id, response, usable=False, dead_end_reason=reason)
         return blocked
 

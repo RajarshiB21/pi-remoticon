@@ -149,7 +149,7 @@ export class HelperDeadlineError extends Error {
 		public readonly timeoutMs: number,
 		public readonly events: readonly HelperEvent[],
 	) {
-		super(`fetch deadline exceeded after ${Math.round(timeoutMs / 1000)} seconds`);
+		super(`gave up after ${Math.round(timeoutMs / 1000)} seconds — no page was returned`);
 		this.name = "HelperDeadlineError";
 	}
 }

@@ -211,7 +211,7 @@ export function finishDeadlineBatch(
 			blockedDomainsCount: usedBrowser ? request.blockedDomains?.length ?? 0 : 0,
 			usable: false,
 			deadEndReason: null,
-			error: `fetch deadline exceeded after ${seconds} seconds; source abandoned`,
+			error: `the page never arrived within ${seconds} seconds`,
 			cancelled: false,
 			content: null,
 			capturedXhr: null,

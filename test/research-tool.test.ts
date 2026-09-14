@@ -111,7 +111,7 @@ describe("fetch payload", () => {
   it("throws when the deadline arrives before any batch started", async () => {
     const tool = definitionWith([], { spawnForTest: () => helperEmitting([], true), deadlineMs: 60 });
     await expect(tool.execute("call-4", { targets: [{ url: "https://example.com/" }] }, undefined, () => undefined))
-      .rejects.toThrow(/deadline/);
+      .rejects.toThrow(/gave up after/);
   }, 30000);
 
   it("returns the tree when the deadline arrived after the batch started", async () => {
@@ -119,7 +119,7 @@ describe("fetch payload", () => {
     const result = await tool.execute("call-5", { targets: [{ url: "https://example.com/" }] }, undefined, () => undefined);
     const pages = result.details.pages as { error: string | null }[];
     expect(pages).toHaveLength(1);
-    expect(pages[0]!.error).toMatch(/deadline exceeded/);
+    expect(pages[0]!.error).toMatch(/never arrived within/);
     expect(result.details.inlineBody).toBe(true);
   }, 30000);
 

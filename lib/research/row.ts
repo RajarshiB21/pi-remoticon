@@ -194,7 +194,7 @@ function rungToken(attempt: AttemptRecord): string {
 			? String(attempt.status)
 			: attempt.unusableSignal === "empty content"
 				? "empty"
-				: `failed${attempt.reason ? ` ${shorten(attempt.reason, 24)}` : ""}`;
+				: "failed";
 	const signal = attempt.blockedSignal !== null ? ` ${blockedLabel(attempt.blockedSignal)}` : "";
 	const latency = attempt.latencyMs !== null ? ` ${formatDuration(attempt.latencyMs)}` : "";
 	const retry = attempt.retryAfterSeconds !== null ? ` retry-after ${Math.round(attempt.retryAfterSeconds)}s` : "";
