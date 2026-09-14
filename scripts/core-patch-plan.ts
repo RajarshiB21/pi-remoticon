@@ -230,6 +230,23 @@ function processEntries(row: ProcessRecord): string[] {
 
 /** Match executable/script paths and their process relatives, excluding prompts. */
 export function affectedProcesses(rows: readonly ProcessRecord[], paths: readonly string[], windows: boolean): number[] {
+  const { running, launchers } = processRoles(rows, paths, windows);
+  return [...new Set([...running, ...launchers])].sort((a, b) => a - b);
+}
+
+/**
+ * Only the processes that execute code from the target. A launcher (a terminal,
+ * an editor, Explorer) merely started pi: it holds none of the target's code, so
+ * it must be reported but must never block a patch. Blocking on it made the
+ * documented "close pi, then apply" runbook impossible on a desktop, where pi's
+ * ancestor chain always reaches the shell session.
+ */
+export function runningProcesses(rows: readonly ProcessRecord[], paths: readonly string[], windows: boolean): number[] {
+  return processRoles(rows, paths, windows).running;
+}
+
+/** Split the matched processes: those running the target, and those that launched it. */
+function processRoles(rows: readonly ProcessRecord[], paths: readonly string[], windows: boolean): { running: number[]; launchers: number[] } {
   /** Normalize case, separators, extended prefixes and dot segments for matching. */
   const normalize = (value: string) => {
     if (value.startsWith("file:")) value = fileURLToPath(value, { windows });
@@ -259,13 +276,15 @@ export function affectedProcesses(rows: readonly ProcessRecord[], paths: readonl
       affected.add(row.pid); changed = true;
     }
   }
+  const running = [...affected].sort((a, b) => a - b);
+  const launchers = new Set<number>();
   for (const row of direct) {
     let parent = rows.find(candidate => candidate.pid === row.parentPid);
     const seen = new Set<number>();
     while (parent && !seen.has(parent.pid)) {
-      seen.add(parent.pid); affected.add(parent.pid);
+      seen.add(parent.pid); launchers.add(parent.pid);
       parent = rows.find(candidate => candidate.pid === parent!.parentPid);
     }
   }
-  return [...affected].sort((a, b) => a - b);
+  return { running, launchers: [...launchers].filter(pid => !running.includes(pid)).sort((a, b) => a - b) };
 }
