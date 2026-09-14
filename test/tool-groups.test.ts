@@ -193,3 +193,87 @@ it("groups original rows across empty turns, splits owned rows at late content a
   }
   expect(operations.render(120).map(stripVTControlCharacters).join("\n")).toContain("Ran 2 searches · listed 2 directories");
 });
+
+it("shows an extension-supplied group summary from the first update to settle", () => {
+  initTheme("dark", false);
+  const groups = createToolGroups({ Container, AssistantMessageComponent, getTheme: () => theme, truncateToWidth, resolvePath: resolveToCwd, skillLines: createSkillPresenter({ getTheme: () => theme, truncateToWidth, wrapTextWithAnsi }) });
+  const chat = new Container();
+  let callId = 100;
+  const makeRow = (name = "fetch") => {
+    const native = new ToolExecutionComponent(name, String(++callId), {}, {}, {
+      renderCall: () => new Text("call", 0, 0),
+      renderResult: () => new Text("body", 0, 0),
+    }, { requestRender() {} } as TUI, process.cwd());
+    const row = native as unknown as Parameters<typeof groups.add>[1] & { updateDisplay(): void };
+    const display = row.updateDisplay.bind(row);
+    row.updateDisplay = () => { try { display(); } finally { row.remoticonChanged?.(); } };
+    return { native, row };
+  };
+  const plain = (group: InstanceType<typeof groups.Group>) => group.render(120).map(stripVTControlCharacters).join("\n");
+
+  const first = makeRow();
+  groups.add(chat, first.row);
+  const group = chat.children[0] as InstanceType<typeof groups.Group>;
+  expect(plain(group)).toContain("1 fetch call pending");
+
+  first.native.updateResult({ content: [{ type: "text", text: "ok" }], details: { groupSummary: "Fetching 3 pages…" }, isError: false }, true);
+  expect(plain(group)).toContain("Fetching 3 pages…");
+  first.native.updateResult({ content: [{ type: "text", text: "ok" }], details: { groupSummary: "Fetched 3 pages · 1 dead end" }, isError: false }, false);
+  expect(plain(group)).toContain("Fetched 3 pages · 1 dead end");
+
+  const second = makeRow();
+  groups.add(chat, second.row);
+  second.native.updateResult({ content: [{ type: "text", text: "ok" }], details: { groupSummary: "Fetched 2 pages" }, isError: false }, true);
+  expect(plain(group)).toContain("Fetched 3 pages · 1 dead end · Fetched 2 pages");
+
+  groups.stop(chat);
+  expect(plain(group)).toContain("Fetched 3 pages · 1 dead end · Fetched 2 pages");
+  expect(plain(group)).not.toContain("Stopped");
+
+  const read = makeRow("read");
+  (read.row as unknown as { args: unknown }).args = { path: "a.ts" };
+  groups.add(chat, read.row);
+  groups.stop(chat);
+  expect(plain(group)).toContain("Stopped · Fetched 3 pages · 1 dead end · Fetched 2 pages · 1 read interrupted");
+});
+
+it("paints a row that asks to paint itself, and leaves its neighbours alone", () => {
+  initTheme("dark", false);
+  const groups = createToolGroups({ Container, AssistantMessageComponent, getTheme: () => theme, truncateToWidth, resolvePath: resolveToCwd, skillLines: createSkillPresenter({ getTheme: () => theme, truncateToWidth, wrapTextWithAnsi }) });
+  const chat = new Container();
+  let callId = 500;
+  const makeRow = (name: string) => {
+    const native = new ToolExecutionComponent(name, String(++callId), {}, {}, {
+      renderShell: "self",
+      renderCall: () => new Text(name, 0, 0),
+      renderResult: () => new Text(`${name} body`, 0, 0),
+    } as never, { requestRender() {} } as TUI, process.cwd());
+    const row = native as unknown as Parameters<typeof groups.add>[1] & { updateDisplay(): void };
+    const display = row.updateDisplay.bind(row);
+    row.updateDisplay = () => { try { display(); } finally { row.remoticonChanged?.(); } };
+    return { native, row };
+  };
+  const plainGroup = (group: InstanceType<typeof groups.Group>) => group.render(120).map(stripVTControlCharacters).join("\n");
+
+  const pinned = makeRow("fetch");
+  groups.add(chat, pinned.row);
+  const group = chat.children[0] as InstanceType<typeof groups.Group>;
+  expect(plainGroup(group)).not.toContain("fetch body");
+
+  pinned.native.updateResult({ content: [{ type: "text", text: "ok" }], details: { inlineBody: true, groupSummary: "Fetch 2 pages █▁ 1 of 2 settled" }, isError: false }, true);
+  expect(plainGroup(group)).toContain("Fetch 2 pages █▁ 1 of 2 settled");
+  expect(plainGroup(group)).toContain("fetch body");
+
+  const ordinary = makeRow("read");
+  (ordinary.row as unknown as { args: unknown }).args = { path: "a.ts" };
+  groups.add(chat, ordinary.row);
+  ordinary.native.updateResult({ content: [{ type: "text", text: "file" }], details: {}, isError: false }, false);
+  expect(plainGroup(group)).toContain("fetch body");
+  expect(plainGroup(group)).not.toContain("read body");
+
+  group.setExpanded(true);
+  expect(plainGroup(group)).toContain("read body");
+  group.setExpanded(false);
+  expect(plainGroup(group)).toContain("fetch body");
+  expect(plainGroup(group)).not.toContain("read body");
+});

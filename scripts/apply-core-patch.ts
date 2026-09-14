@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import ts from "typescript";
 import { runtimePatches } from "./runtime-patches.js";
 import {
-  CLI_PATH, STATE_DIR, PI_VERSION, PATCHES, sha256, inspectPlan, affectedProcesses,
+  CLI_PATH, STATE_DIR, PI_VERSION, PATCHES, sha256, inspectPlan, runningProcesses,
   type Edit, type Manifest, type Inspection, type ProcessRecord,
 } from "./core-patch-plan.js";
 
@@ -171,8 +171,8 @@ function assertClosed(target: string, command: Command): void {
   const modules = dirname(dirname(target));
   const prefix = dirname(modules);
   const paths = [join(target, CLI_PATH), ...["pi", "pi.cmd", "pi.ps1"].flatMap(name => [join(prefix, name), join(modules, ".bin", name)])];
-  const pids = affectedProcesses(rows, paths, process.platform === "win32");
-  if (pids.length) throw new Error(`PID ${pids.join(", ")} uses ${target}. Close pi using ${target}, then rerun ${command}. No files changed.`);
+  const pids = runningProcesses(rows, paths, process.platform === "win32");
+  if (pids.length) throw new Error(`PID ${pids.join(", ")} is running ${target}. Close pi using ${target}, then rerun ${command}. No files changed.`);
 }
 
 /** This low-level transaction is also exercised with tiny disposable test files. */

@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { readBundle } from "../scripts/apply-core-patch.js";
 import {
   inspectPlan as inspectPlanPure, planEdits, sha256, PATCHES, PI_NAME, PI_VERSION, CLI_PATH,
-  ORIGINAL_HASH, THIN_BAR_HASH, UI_HASH, affectedProcesses, type Manifest, type ProcessRecord,
+  ORIGINAL_HASH, THIN_BAR_HASH, UI_HASH, affectedProcesses, runningProcesses, type Manifest, type ProcessRecord,
 } from "../scripts/core-patch-plan.js";
 import { PRISTINE_SOURCE } from "./helpers/patch-harness.js";
 import { runtimePatches } from "../scripts/runtime-patches.js";
@@ -118,6 +118,9 @@ describe("S0 pure patch plan", () => {
     const rows = [row(1, 0, "terminal"), row(2, 1, 'node "C:\\PI\\dist\\bundle\\cli.js" --prompt secret'),
       row(3, 2, "helper"), row(4, 1, 'node "C:\\PI-other\\dist\\bundle\\cli.js"'), row(5, 1, "unrelated")];
     expect(affectedProcesses(rows, ["c:/pi/dist/bundle/cli.js"], true)).toEqual([1, 2, 3]);
+    // Only the pi process itself (and its children) may block a patch: the
+    // terminal, the editor and Explorer merely launched it.
+    expect(runningProcesses(rows, ["c:/pi/dist/bundle/cli.js"], true)).toEqual([2, 3]);
     expect(affectedProcesses([row(6, 0, 'cmd /c "C:\\npm\\pi.cmd"')], ["c:/npm/pi.cmd"], true)).toEqual([6]);
     expect(() => affectedProcesses(rows, ["c:/pi/dist/bundle/cli.js"], false)).toThrow(/Cannot disambiguate/);
     expect(affectedProcesses([row(9, 0, 'node /opt/pi/dist/other/../bundle/cli.js')], ["/opt/pi/dist/bundle/cli.js"], false)).toEqual([9]);

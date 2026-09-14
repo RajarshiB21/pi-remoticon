@@ -5,13 +5,13 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 interface Assistant extends Component { remoticonVisible?: boolean; remoticonLastKind?: "text" | "thinking" | "notice"; remoticonVisibilityChanged?: () => void }
 interface ToolRow extends Component {
   toolName: string; expanded: boolean; isPartial: boolean; remoticonStopped?: boolean; args?: unknown; cwd?: string;
-  result?: { isError: boolean; content: { type: string; text?: string }[]; details?: { truncation?: { truncated?: boolean; firstLineExceedsLimit?: boolean } } };
+  result?: { isError: boolean; content: { type: string; text?: string }[]; details?: { truncation?: { truncated?: boolean; firstLineExceedsLimit?: boolean }; groupSummary?: string; inlineBody?: boolean } };
   remoticonChanged?: () => void;
   setExpanded(expanded: boolean): void;
   setShowImages(show: boolean): void;
   setImageWidthCells(width: number): void;
 }
-interface Snapshot { name: string; state: "pending" | "done" | "failed" | "stopped"; error: string; path?: string; skill?: SkillState }
+interface Snapshot { name: string; state: "pending" | "done" | "failed" | "stopped"; error: string; path?: string; skill?: SkillState; groupSummary?: string; inlineBody?: boolean }
 interface Entry { row: ToolRow; owner?: Assistant; snapshot: Snapshot; skills: ReadonlyMap<string, string> }
 
 /** Presentation only: retain original tool instances, results and execution order. */
@@ -31,7 +31,10 @@ export function createToolGroups(d: {
     const partial = !!(args && typeof args === "object" && "offset" in args && typeof args.offset === "number" && args.offset > 1) ||
       !!row.result?.details?.truncation?.truncated || !!row.result?.details?.truncation?.firstLineExceedsLimit ||
       !!row.result?.content.some(block => block.type === "text" && /\n\n\[\d+ more lines in file\. Use offset=\d+ to continue\.\]$/.test(block.text ?? ""));
-    return { name: row.toolName, state, error, path: path ? keyPath(path) : undefined, skill: name ? { name, state, error, partial } : undefined };
+    const groupSummary = row.result?.details?.groupSummary;
+    // D6: a row that paints its own body is never hidden by the group's state.
+    const inlineBody = row.result?.details?.inlineBody === true;
+    return { name: row.toolName, state, error, path: path ? keyPath(path) : undefined, skill: name ? { name, state, error, partial } : undefined, groupSummary: typeof groupSummary === "string" && groupSummary.length > 0 ? groupSummary : undefined, inlineBody: inlineBody || undefined };
   };
   const operations: Record<string, { done: string; pending: string; noun: string; file?: boolean }> = {
     read: { done: "read", pending: "reading", noun: "read", file: true },
@@ -89,23 +92,28 @@ export function createToolGroups(d: {
         for (const segment of this.segments) {
           if (segment.entries[0].snapshot.skill) continue;
           const counts = new Map<string, { value: Snapshot; count: number; paths: Set<string> }>();
+          const ordered: ({ bucket: string } | { custom: string })[] = [];
           segment.error = "";
           segment.pending = false;
           let stopped = false;
           for (const { snapshot: value } of segment.entries) {
+            if (value.state === "failed") segment.error ||= `${value.name}: ${value.error}`;
+            if (value.state === "pending") segment.pending = true;
+            if (value.state === "stopped") stopped = true;
+            // D5: an extension-supplied summary replaces the counted line for this row.
+            if (value.groupSummary) { ordered.push({ custom: value.groupSummary }); continue; }
             const known = Object.hasOwn(operations, value.name) ? operations[value.name] : undefined;
             // Failed/stopped attempts remain separate even when a retry uses the same path.
             const file = known?.file && value.path && (value.state === "pending" || value.state === "done");
             const key = `${known?.file || !known ? value.name : known.noun}/${value.state}/${Boolean(file)}`;
             let bucket = counts.get(key);
-            if (!bucket) { bucket = { value, count: 0, paths: new Set() }; counts.set(key, bucket); }
+            if (!bucket) { bucket = { value, count: 0, paths: new Set() }; counts.set(key, bucket); ordered.push({ bucket: key }); }
             if (!file || !bucket.paths.has(value.path!)) bucket.count++;
             if (file) bucket.paths.add(value.path!);
-            if (value.state === "failed") segment.error ||= `${value.name}: ${value.error}`;
-            if (value.state === "pending") segment.pending = true;
-            if (value.state === "stopped") stopped = true;
           }
-          const parts = [...counts.values()].map(({ value, count }) => {
+          const parts = ordered.map(entry => {
+            if ("custom" in entry) return entry.custom;
+            const { value, count } = counts.get(entry.bucket)!;
             const known = Object.hasOwn(operations, value.name) ? operations[value.name] : undefined;
             if (!known) return `${count} ${value.name} ${count === 1 ? "call" : "calls"} ${value.state === "done" ? "completed" : value.state === "stopped" ? "interrupted" : value.state}`;
             const noun = known.file && value.path && (value.state === "pending" || value.state === "done") ? "file" : known.noun;
@@ -115,7 +123,8 @@ export function createToolGroups(d: {
             if (known.file && !value.path) return `${label} ${value.state === "done" ? "completed" : "pending"}`;
             return `${value.state === "pending" ? known.pending : known.done} ${label}`;
           });
-          const summary = (stopped ? ["Stopped", ...parts] : parts).join(" · ");
+          const allCustom = ordered.length > 0 && ordered.every(entry => "custom" in entry);
+          const summary = (stopped && !allCustom ? ["Stopped", ...parts] : parts).join(" · ");
           segment.summary = summary.charAt(0).toUpperCase() + summary.slice(1);
         }
         this.dirty = false;
@@ -137,7 +146,9 @@ export function createToolGroups(d: {
         lines.push(d.truncateToWidth(pad + styled, width, ""));
         if (segment.error) lines.push(d.truncateToWidth(pad + "  " + theme.fg("error", `! ${segment.error}`), width, ""));
         segment.bodyY = lines.length;
-        const body = segment.expanded ? segment.body.render(width) : [];
+        const body = segment.expanded
+          ? segment.body.render(width)
+          : segment.entries.filter(entry => entry.snapshot.inlineBody).flatMap(entry => entry.row.render(width));
         segment.height = body.length;
         lines.push(...body);
       }
