@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -110,21 +110,63 @@ describe("sidebar tools", () => {
     expect(store.get("2")?.blockedBy).toEqual([]);            // so neither the status nor the edge landed
     expect(store.get("1")?.blocks).toEqual([]);               // nor the reverse edge
   });
-  it("refuses adding an unfinished blocker to a task already in progress", async () => {
+  it("refuses an unfinished blocker hanging on a task already in progress", async () => {
+    // The reachable path to that state is a revert: #2 started legitimately with its forward
+    // blocker #1 finished, then #1 was reopened. The edge gate keeps the state from being
+    // extended or re-claimed; backward edges never get declared at all (next test).
     const store = new TaskStore();
     const pi = fakePi();
     registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
     const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
-    await run(pi, "TaskCreate", { subject: "done first", description: "" });      // #1
-    await run(pi, "TaskCreate", { subject: "dependent", description: "" });        // #2
-    await run(pi, "TaskCreate", { subject: "later blocker", description: "" });    // #3
+    await run(pi, "TaskCreate", { subject: "blocker", description: "" });    // #1
+    await run(pi, "TaskCreate", { subject: "dependent", description: "" });  // #2
     await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
-    await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" });   // legitimately started
-    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["3"] }))).toContain("#2 is blocked by #3");
-    expect(store.get("2")?.blockedBy).toEqual([]);                          // refused
+    await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] });      // forward: allowed
+    await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" });   // allowed: its blocker is done
+    await run(pi, "TaskUpdate", { task_id: "1", status: "pending" });        // reopen the blocker
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" }))).toContain("#2 is blocked by #1");
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] }))).toContain("#2 is blocked by #1");
     // An edit that touches neither the status nor the edges is still allowed.
     expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", subject: "renamed" }))).toContain("Updated #2");
     expect(store.get("2")?.subject).toBe("renamed");
+  });
+  it("refuses a backward dependency at declaration, before it can deadlock the list", async () => {
+    // #1 blocked by #2 is unrecoverable under the enforced sequence: #1 could never start
+    // (its blocker is later and unfinished) and #2 could never finish (#1 is unfinished).
+    // So the edge is refused when it is declared, from either end, before any work happens.
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "first", description: "" });
+    await run(pi, "TaskCreate", { subject: "second", description: "" });
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "1", addBlockedBy: ["2"] }))).toContain("#1 cannot depend on #2");
+    expect(store.get("1")?.blockedBy).toEqual([]);          // refused whole: neither end landed
+    expect(store.get("2")?.blocks).toEqual([]);
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlocks: ["1"] }))).toContain("#2 cannot block #1");
+    expect(store.get("2")?.blocks).toEqual([]);
+    // The forward direction is still legal — it is what ID order already implies.
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] }))).toContain("Updated #2");
+  });
+  it("fails closed when a hand-edited file leaves an unorderable id", async () => {
+    // The store tolerates hand-edited files (load-boundary normalization accepts any string
+    // id), so the gate must not silently switch off for them: an unorderable row counts as
+    // earlier and blocks everything until it is deleted — the one exit that always works.
+    const dir = mkdtempSync(join(tmpdir(), "sidebar-order-"));
+    try {
+      const file = join(dir, "t.json");
+      writeFileSync(file, JSON.stringify({ nextId: 3, tasks: [
+        { id: "1a", subject: "garbage row", description: "", status: "pending", metadata: {}, blocks: [], blockedBy: [], createdAt: 0, updatedAt: 0 },
+        { id: "2", subject: "real work", description: "", status: "pending", metadata: {}, blocks: [], blockedBy: [], createdAt: 0, updatedAt: 0 },
+      ] }));
+      const store = new TaskStore(file);
+      const pi = fakePi();
+      registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+      const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+      expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "completed" }))).toContain("#2 cannot be completed while #1a is unfinished");
+      expect(textOf(await run(pi, "TaskUpdate", { task_id: "1a", status: "deleted" }))).toBe("Deleted #1a");
+      expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "completed" }))).toContain("Updated #2");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
   it("refuses out-of-order work with no declared edges at all", async () => {
     // The owner's dishonesty complaint: a model leaving #1 unfinished while starting or

@@ -43,6 +43,11 @@ const openBlockersAmong = (store: TaskStore, ids: readonly string[]): string[] =
   });
 const openBlockersOf = (store: TaskStore, task: Task): string[] => openBlockersAmong(store, task.blockedBy);
 
+/** Task ids are the store's sequential numbers. An id that does not parse (a hand-edited
+ *  file) counts as EARLIER than everything, not later: an unorderable row must never let
+ *  anything jump past it, so the sequence gate fails closed on garbage ids. */
+const idOrder = (id: string): number => { const n = Number(id); return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY; };
+
 const CREATE_DESCRIPTION = [
   "Use this tool to create a structured task list for your current coding session. This helps you track progress and organize complex tasks.",
   "It also helps the user understand the progress of the task and overall progress of their requests.",
@@ -98,11 +103,11 @@ const LIST_DESCRIPTION = [
   "",
   "## When to Use This Tool",
   "",
-  "- To see what tasks are available to work on (status: 'pending', not blocked)",
+  "- To see what task to work on next: always the lowest-numbered unfinished task",
   "- To check overall progress on the project",
-  "- To find tasks that are blocked and need dependencies resolved",
-  "- After completing a task, to check for newly unblocked work or claim the next available task",
-  "- **Prefer working on tasks in ID order** (lowest ID first) when multiple tasks are available, as earlier tasks often set up context for later ones",
+  "- To see declared dependencies between tasks",
+  "- After completing a task, to see what the next task in ID order is",
+  "- **Work tasks in ID order** (lowest ID first); the tools refuse out-of-order updates. `blockedBy` edges document dependencies between tasks; ID order governs what can be worked on",
   "",
   "## Output",
   "",
@@ -193,6 +198,7 @@ const UPDATE_DESCRIPTION = [
   "- Work tasks in ID order: a task cannot be set `in_progress` or `completed` while an earlier-numbered task is unfinished. If an earlier task will never be done, set it to `deleted` — that is the exit.",
   "- Exactly one task may be `in_progress` at a time: the spinner marks what is happening now. Complete or delete the current task before starting the next.",
   "- A task with an unfinished `blockedBy` entry cannot be started.",
+  "- A dependency may only point at an earlier-numbered task: a later task may depend on an earlier one, never the reverse.",
   "",
   "A refused update changes nothing; the error names the task to finish or delete first.",
   "",
@@ -247,7 +253,7 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
     promptGuidelines: [
       "When working on complex multi-step tasks, use TaskCreate to track progress and TaskUpdate to update status.",
       "Mark tasks as in_progress before starting work and completed when done.",
-      "Use TaskList to check for available work after completing a task.",
+      "Use TaskList to find the next task in ID order after completing one; the tools refuse out-of-order updates.",
     ],
     parameters: TaskCreateParams,
     async execute(_id, args) {
@@ -297,6 +303,21 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
       const store = getStore();
       const current = store.get(args.task_id);
       if (!current) return textResult(`Error: #${args.task_id} not found`);
+      // A dependency may only point at an earlier-numbered task. A backward edge is an
+      // unrecoverable contradiction of the enforced sequence: the earlier task could never
+      // start (its blocker is later and unfinished) and the later could never finish (the
+      // earlier is unfinished). Refused at declaration, from either end, before it can
+      // deadlock the list.
+      for (const id of args.addBlockedBy ?? []) {
+        if (id !== args.task_id && idOrder(id) > idOrder(args.task_id)) {
+          return textResult(`Error: #${args.task_id} cannot depend on #${id} — dependencies point at earlier-numbered tasks; recreate this task after its prerequisite, or drop the dependency`);
+        }
+      }
+      for (const id of args.addBlocks ?? []) {
+        if (id !== args.task_id && idOrder(id) < idOrder(args.task_id)) {
+          return textResult(`Error: #${args.task_id} cannot block #${id} — dependencies point at earlier-numbered tasks; recreate #${id} after this task, or drop the dependency`);
+        }
+      }
       // The rule is "in_progress implies no unfinished blockers", checked against the state this
       // update would LEAVE rather than the one it starts from: a single call can both start a
       // task and declare an unfinished blocker on it. A self-edge is a separate malformed-
@@ -321,8 +342,8 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
         const verb = args.status === "in_progress" ? "started" : "completed";
         const others = store.list().filter(t => t.id !== args.task_id);
         const earlier = others
-          .filter(t => Number(t.id) < Number(args.task_id) && t.status !== "completed")
-          .sort((a, b) => Number(a.id) - Number(b.id));
+          .filter(t => idOrder(t.id) < idOrder(args.task_id) && t.status !== "completed")
+          .sort((a, b) => idOrder(a.id) - idOrder(b.id));
         if (earlier.length > 0) {
           return textResult(`Error: #${args.task_id} cannot be ${verb} while #${earlier[0].id} is unfinished — work tasks in ID order, or set #${earlier[0].id} to deleted if it is no longer needed`);
         }
