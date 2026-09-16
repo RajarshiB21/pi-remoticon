@@ -14,17 +14,24 @@ export const DEFAULT_CONFIG: SidebarConfig = {
   slots: [{ id: "tasks", priority: 90, required: true, minRows: 4, maxRows: 6 }],
   tasks: { autoClear: "on_list_complete", glyphs: {} },
 };
-const readJson = (path: string): Record<string, unknown> => {
+/** Read a config file. An absent file is normal and silent; a file that exists but does not
+ *  hold a JSON object is reported, because otherwise it silently does nothing. */
+const readJson = (path: string, onInvalid?: (path: string) => void): Record<string, unknown> => {
+  let text: string;
+  try { text = readFileSync(path, "utf8"); }
+  catch { return {}; }                                  // absent: not an error
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch { return {}; }
+    const parsed: unknown = JSON.parse(text);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch { /* not JSON — reported below */ }
+  onInvalid?.(path);
+  return {};
 };
 const asObject = (v: unknown): Record<string, unknown> => (v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {});
 
-export function loadConfig(agentDir: string, cwd?: string, trusted = true): SidebarConfig {
-  const globalFile = asObject(readJson(join(agentDir, "remoticon-sidebar.json")));
-  const projectFile = trusted && cwd ? asObject(readJson(join(cwd, ".pi", "remoticon-sidebar.json"))) : {};
+export function loadConfig(agentDir: string, cwd?: string, trusted = true, onInvalidJson?: (path: string) => void): SidebarConfig {
+  const globalFile = asObject(readJson(join(agentDir, "remoticon-sidebar.json"), onInvalidJson));
+  const projectFile = trusted && cwd ? asObject(readJson(join(cwd, ".pi", "remoticon-sidebar.json"), onInvalidJson)) : {};
   const globalSidebar = asObject(globalFile.sidebar);
   const projectSidebar = asObject(projectFile.sidebar);
   const globalTasks = asObject(globalFile.tasks);
@@ -40,10 +47,12 @@ export function loadConfig(agentDir: string, cwd?: string, trusted = true): Side
     },
   };
 }
+/** True when the trusted project file changes anything the global file alone would give.
+ *  Comparing the whole config covers every key group — including `sidebar.on` and `tasks`,
+ *  which a key-by-key comparison here used to miss — and it cannot report an override for an
+ *  invalid global value, because the same validation runs on both sides. */
 export function projectOverrideActive(cfg: SidebarConfig, agentDir: string): boolean {
-  const globalFile = asObject(readJson(join(agentDir, "remoticon-sidebar.json")));
-  return cfg.sidebar.width !== (Number(asObject(globalFile.sidebar).width) || DEFAULT_CONFIG.sidebar.width)
-    || JSON.stringify(cfg.slots) !== JSON.stringify(Array.isArray(globalFile.slots) ? globalFile.slots : DEFAULT_CONFIG.slots);
+  return JSON.stringify(cfg) !== JSON.stringify(loadConfig(agentDir));
 }
 function writeGlobal(agentDir: string, mutate: (g: Record<string, unknown>) => void): void {
   const global = asObject(readJson(join(agentDir, "remoticon-sidebar.json")));

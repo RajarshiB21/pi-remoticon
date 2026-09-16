@@ -38,4 +38,39 @@ describe("sidebar config", () => {
     saveGlobalWidth(agent, 36);
     expect(JSON.parse(readFileSync(join(agent, "remoticon-sidebar.json"), "utf8")).sidebar.width).toBe(36);
   });
+
+  const writeProject = (body: unknown) => {
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "remoticon-sidebar.json"), typeof body === "string" ? body : JSON.stringify(body));
+  };
+
+  it("reports an override for any key the project changes, not just width and slots", () => {
+    writeProject({ sidebar: { on: false } });                       // the key group the old helper missed
+    expect(projectOverrideActive(loadConfig(agent, cwd, true), agent)).toBe(true);
+    writeProject({ tasks: { autoClear: "never" } });
+    expect(projectOverrideActive(loadConfig(agent, cwd, true), agent)).toBe(true);
+    rmSync(join(cwd, ".pi", "remoticon-sidebar.json"));
+    expect(projectOverrideActive(loadConfig(agent, cwd, true), agent)).toBe(false);
+  });
+  it("does not invent an override out of an invalid global width", () => {
+    writeFileSync(join(agent, "remoticon-sidebar.json"), JSON.stringify({ sidebar: { width: 99 } }));
+    expect(projectOverrideActive(loadConfig(agent, cwd, true), agent)).toBe(false);
+  });
+  it("reports a config file that exists but holds no JSON object", () => {
+    const reported: string[] = [];
+    const report = (p: string) => { reported.push(p); };
+    const globalFile = join(agent, "remoticon-sidebar.json");
+    loadConfig(agent, cwd, true, report);
+    expect(reported).toEqual([]);                                  // absent is not an error
+    writeFileSync(globalFile, "{not json");
+    loadConfig(agent, cwd, true, report);
+    expect(reported).toEqual([globalFile]);
+    reported.length = 0;
+    loadConfig(agent, cwd, false, report);
+    expect(reported).toEqual([globalFile]);                        // untrusted project file is never read
+    writeProject("[1,2]");
+    reported.length = 0;
+    loadConfig(agent, cwd, true, report);
+    expect(reported).toHaveLength(2);                              // unparseable and wrong-shaped both count
+  });
 });

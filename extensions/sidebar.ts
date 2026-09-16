@@ -20,6 +20,11 @@ export default function (pi: ExtensionAPI): void {
   const agentDir = getAgentDir();
   const motion = process.env.PI_REMOTICON_MOTION !== "off";
   let cfg = loadConfig(agentDir);
+  /** Captured when the session's config is loaded, not re-derived per command: `/sidebar`
+   *  mutates `cfg`, so re-deriving it later would report "no override" the moment the user
+   *  ran `/sidebar on|off|width` — the exact case where the note matters most, because the
+   *  project file will still win on the next session. */
+  let projectOverride = false;
   let store = new TaskStore();
   let cadence = createCadenceState();
   let autoClear = new AutoClearManager(() => store, () => cfg.tasks.autoClear);
@@ -29,7 +34,6 @@ export default function (pi: ExtensionAPI): void {
   let closeOverlay: (() => void) | undefined;
   let spinnerTimer: ReturnType<typeof setInterval> | undefined;
   let slots: Slot[] = [];
-  let resolveOverlay: ((result: string | null) => void) | undefined;
 
   const refresh = () => { tasks = store.list(); };
   const changed = () => { refresh(); requestRender?.(); syncSpinner(); };
@@ -56,12 +60,16 @@ export default function (pi: ExtensionAPI): void {
     const parentSnapshot = event?.reason === "fork" ? store.snapshot() : undefined;
     const sessionId = ctx.sessionManager.getSessionFile() ? ctx.sessionManager.getSessionId() : undefined;
     store = new TaskStore(sessionId ? sessionTaskFile(agentDir, ctx.cwd, sessionId) : undefined);
-    const restored = store.list().length;
-    if ((event?.reason === "startup" || event?.reason === "new") && restored > 0
-      && store.list().every(t => t.status === "completed")) store.clearCompleted();
+    const loaded = store.list();
+    // A finished list from a previous session must not sit on screen, so the startup rule
+    // clears it before anything is shown. The toast then has to report what SURVIVED that
+    // clear, not what the file happened to hold — otherwise it announces tasks the user
+    // cannot see, next to a panel reading "No tasks".
+    if ((event?.reason === "startup" || event?.reason === "new") && loaded.length > 0
+      && loaded.every(t => t.status === "completed")) store.clearCompleted();
     if (parentSnapshot) store.seed(parentSnapshot);
     refresh();
-    if (restored > 0 && event?.reason !== "reload") ctx.ui.notify(`Restored ${restored} persisted task${restored === 1 ? "" : "s"}`, "info");
+    if (tasks.length > 0 && event?.reason !== "reload") ctx.ui.notify(`Restored ${tasks.length} persisted task${tasks.length === 1 ? "" : "s"}`, "info");
   }
 
   registerTaskTools(pi, () => store, changed, {
@@ -74,10 +82,12 @@ export default function (pi: ExtensionAPI): void {
 
   function showSidebar(ctx: ExtensionContext): void {
     if (split) return;
-    split = createSplitController({ width: cfg.sidebar.width });
-    void ctx.ui.custom<string | null>((tui, _theme, _kb, done) => {
+    split = createSplitController({
+      width: cfg.sidebar.width,
+      onError: e => ctx.ui.notify(`Sidebar column unavailable: ${String(e)}`, "error"),
+    });
+    void ctx.ui.custom<string | null>(tui => {
       requestRender = () => tui.requestRender();
-      resolveOverlay = done;
       split?.attach(tui);
       split?.show();                                   // the column's visibility predicate reads `enabled`
       const rowHeight = () => tui.terminal.rows;
@@ -92,14 +102,17 @@ export default function (pi: ExtensionAPI): void {
     }, {
       overlay: true,
       overlayOptions: () => split?.overlayOptions() ?? {},
-      // the retained close both removes the overlay and resolves custom()
-      onHandle: handle => { closeOverlay = () => { handle.hide(); resolveOverlay?.(null); }; },
+      // Removal is by identity via the handle, and the factory's `done` is deliberately not
+      // retained: for an overlay pi drives `done` into `ui.hideOverlay()`, which pops whatever
+      // overlay is topmost, not ours. With a dialog open above this one that would close the
+      // dialog and leave the sidebar. `handle.hide()` splices our own entry out and is a no-op
+      // if it is already gone, so calling it twice (off, then shutdown) is safe.
+      onHandle: handle => { closeOverlay = () => handle.hide(); },
     }).catch(e => ctx.ui.notify(`Sidebar failed: ${String(e)}`, "error"));
   }
 
   function hideSidebar(): void {
     closeOverlay?.(); closeOverlay = undefined;
-    resolveOverlay = undefined;
     split?.dispose(); split = undefined;
     requestRender = undefined;
     if (spinnerTimer) { clearInterval(spinnerTimer); spinnerTimer = undefined; }
@@ -107,7 +120,9 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
-    cfg = loadConfig(agentDir, ctx.cwd, ctx.isProjectTrusted());
+    cfg = loadConfig(agentDir, ctx.cwd, ctx.isProjectTrusted(),
+      path => ctx.ui.notify(`Ignoring invalid sidebar config: ${path}`, "warning"));
+    projectOverride = projectOverrideActive(cfg, agentDir);
     cadence = createCadenceState();
     autoClear = new AutoClearManager(() => store, () => cfg.tasks.autoClear);
     repointStore(ctx, event);
@@ -152,7 +167,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Show, hide or resize the Remoticon sidebar",
     handler: async (args, ctx) => {
       const [a, b] = args.trim().split(/\s+/).filter(Boolean);
-      const override = projectOverrideActive(cfg, agentDir) ? " \u00B7 project override active" : "";
+      const override = projectOverride ? " \u00B7 project override active" : "";
       if (a === "on" || a === "off") {
         cfg.sidebar.on = a === "on";
         saveGlobalSideFlag(agentDir, a === "on");
@@ -160,7 +175,7 @@ export default function (pi: ExtensionAPI): void {
           if (a === "off") hideSidebar();
           else showSidebar(ctx);                       // on shows immediately, exactly like off hides
         }
-        ctx.ui.notify(`Sidebar ${a}`, "info");
+        ctx.ui.notify(`Sidebar ${a}${override}`, "info");
         return;
       }
       if (a === "width") {
@@ -171,7 +186,7 @@ export default function (pi: ExtensionAPI): void {
         split?.rebuild(w);
         buildSlots();
         requestRender?.();
-        ctx.ui.notify(`Sidebar width ${w}`, "info");
+        ctx.ui.notify(`Sidebar width ${w}${override}`, "info");
         return;
       }
       if (a === undefined) {

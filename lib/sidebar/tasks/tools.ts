@@ -12,11 +12,13 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateHead } from "@earendil-wo
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TaskStore } from "./store.js";
 
-import type { TaskStatus } from "./types.js";
+import type { Task, TaskStatus } from "./types.js";
 
 export const TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskList", "TaskGet", "TaskUpdate"]);
-/** pi-tasks' own status union shape, without its internal helper: */
-const StatusUnion = Type.Unsafe<"pending" | "in_progress" | "completed">({ type: "string", enum: ["pending", "in_progress", "completed"] });
+/** pi-tasks' own status union shape, without its internal helper. The description is a
+ *  parameter, because TaskList and TaskUpdate both take a status and mean different things. */
+const statusUnion = (description: string) =>
+  Type.Unsafe<"pending" | "in_progress" | "completed">({ type: "string", enum: ["pending", "in_progress", "completed"], description });
 
 const cleanOptional = (v?: string) => v?.trim().replace(/\s+/g, " ") || undefined;
 const textResult = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
@@ -24,8 +26,16 @@ function bounded(text: string): string {
   const r = truncateHead(text, { maxBytes: DEFAULT_MAX_BYTES - 300, maxLines: DEFAULT_MAX_LINES - 2 });
   return r.truncated && r.content ? `${r.content}\n\n[Output truncated: use TaskList or TaskGet for the rest.]` : text;
 }
-const formatTask = (t: { id: string; subject: string; status: string; activeForm?: string }) =>
-  `[${t.status}] #${t.id} ${t.subject}${t.status === "in_progress" && t.activeForm ? ` (${t.activeForm})` : ""}`;
+const formatTask = (t: Task, openBlockers: readonly string[]) =>
+  `[${t.status}] #${t.id} ${t.subject}${t.status === "in_progress" && t.activeForm ? ` (${t.activeForm})` : ""}`
+  + (openBlockers.length ? ` [blocked by ${openBlockers.map(id => `#${id}`).join(", ")}]` : "");
+/** Spec §8: dependencies are enforced by the tools AND printed in tool output, so the model
+ *  can see what is blocked before starting it. Only unfinished blockers are worth showing. */
+const openBlockersOf = (store: TaskStore, task: Task): string[] =>
+  task.blockedBy.filter(id => {
+    const blocker = store.get(id);
+    return blocker !== undefined && blocker.status !== "completed";
+  });
 
 const CREATE_DESCRIPTION = [
   "Use this tool to create a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.",
@@ -77,7 +87,7 @@ const LIST_DESCRIPTION = [
   "",
   "## When to Use This Tool",
   "",
-  "- To see what tasks are available to work on (status: 'pending', no owner, not blocked)",
+  "- To see what tasks are available to work on (status: 'pending', not blocked)",
   "- To check overall progress on the project",
   "- To find tasks that are blocked and need dependencies resolved",
   "- After completing a task, to check for newly unblocked work or claim the next available task",
@@ -197,10 +207,11 @@ const TaskCreateParams = Type.Object({
 });
 const TaskUpdateParams = Type.Object({
   task_id: Type.String({ description: "Task id to update" }),
-  status: Type.Optional(StatusUnion),
+  status: Type.Optional(statusUnion("New status for the task")),
   subject: Type.Optional(Type.String()),
   description: Type.Optional(Type.String()),
   activeForm: Type.Optional(Type.String()),
+  metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Metadata keys to merge into the task. Set a key to null to delete it." })),
   addBlocks: Type.Optional(Type.Array(Type.String())),
   addBlockedBy: Type.Optional(Type.Array(Type.String())),
 });
@@ -230,10 +241,11 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
     name: "TaskList",
     label: "TaskList",
     description: LIST_DESCRIPTION,
-    parameters: Type.Object({ status: Type.Optional(StatusUnion) }),
+    parameters: Type.Object({ status: Type.Optional(statusUnion("Only show tasks with this status")) }),
     async execute(_id, args) {
-      const tasks = args.status ? getStore().list().filter(t => t.status === args.status) : getStore().list();
-      return textResult(bounded(tasks.length ? tasks.map(formatTask).join("\n") : "No tasks"));
+      const store = getStore();
+      const tasks = args.status ? store.list().filter(t => t.status === args.status) : store.list();
+      return textResult(bounded(tasks.length ? tasks.map(t => formatTask(t, openBlockersOf(store, t))).join("\n") : "No tasks"));
     },
   });
   pi.registerTool({
@@ -242,9 +254,12 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
     description: GET_DESCRIPTION,
     parameters: Type.Object({ task_id: Type.String() }),
     async execute(_id, args) {
-      const t = getStore().get(args.task_id);
+      const store = getStore();
+      const t = store.get(args.task_id);
       if (!t) return textResult(`Error: #${args.task_id} not found`);
-      return textResult(bounded(`${formatTask(t)}\n ${t.description}`));
+      const lines = [formatTask(t, openBlockersOf(store, t)), ` ${t.description}`];
+      if (t.blocks.length > 0) lines.push(` Blocks: ${t.blocks.map(id => `#${id}`).join(", ")}`);
+      return textResult(bounded(lines.join("\n")));
     },
   });
   pi.registerTool({

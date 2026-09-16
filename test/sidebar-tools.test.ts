@@ -58,4 +58,37 @@ describe("sidebar tools", () => {
     expect((await run(pi, "TaskGet", { task_id: "1" })).content[0]).toMatchObject({ type: "text", text: expect.stringContaining("#1 a") });
     expect((await run(pi, "TaskGet", { task_id: "9" })).content[0]).toMatchObject({ type: "text", text: expect.stringContaining("#9 not found") });
   });
+  it("filters the list by the documented status parameter", async () => {
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    await run(pi, "TaskCreate", { subject: "a", description: "" });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    expect(textOf(await run(pi, "TaskList", { status: "pending" }))).toContain("#1 a");
+    expect(textOf(await run(pi, "TaskList", { status: "completed" }))).toBe("No tasks");
+  });
+  it("prints dependency edges, so blocked work is visible before it is started", async () => {
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "first", description: "" });
+    await run(pi, "TaskCreate", { subject: "second", description: "" });
+    await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] });
+    expect(textOf(await run(pi, "TaskList", {}))).toContain("#2 second [blocked by #1]");
+    expect(textOf(await run(pi, "TaskGet", { task_id: "2" }))).toContain("[blocked by #1]");
+    expect(textOf(await run(pi, "TaskGet", { task_id: "1" }))).toContain("Blocks: #2");
+    await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
+    expect(textOf(await run(pi, "TaskList", {}))).not.toContain("blocked by");   // a finished blocker stops blocking
+  });
+  it("accepts metadata on update, including a null value that deletes the key", async () => {
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    await run(pi, "TaskCreate", { subject: "a", description: "" });
+    await run(pi, "TaskUpdate", { task_id: "1", metadata: { file: "a.ts", drop: null } });
+    expect(store.get("1")?.metadata).toEqual({ file: "a.ts" });
+    await run(pi, "TaskUpdate", { task_id: "1", metadata: { file: null } });
+    expect(store.get("1")?.metadata).toEqual({});
+  });
 });

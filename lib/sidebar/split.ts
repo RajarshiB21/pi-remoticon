@@ -80,8 +80,14 @@ export function createSplitController(options: SplitControllerOptions = {}): Spl
   let tui: TUI | undefined;
   let enabled = false;
   let disposed = false;
+  /** True once an adapter has actually taken the width from the main column. The overlay may
+   *  only paint while this holds: if pi's layout root cannot be found (a renamed private field
+   *  after a pi upgrade), painting anyway would cover live main content instead of a reserved
+   *  column, which is the partial screen state the contract forbids. */
+  let reserved = false;
+  let reportedUnreserved = false;
 
-  const isVisibleAtWidth = (width: number): boolean => enabled && width >= minMainWidth + sidebarWidth;
+  const isVisibleAtWidth = (width: number): boolean => enabled && reserved && width >= minMainWidth + sidebarWidth;
   const overlayOptions: OverlayOptions = {
     anchor: "top-right",
     width: sidebarWidth,
@@ -108,12 +114,13 @@ export function createSplitController(options: SplitControllerOptions = {}): Spl
     if (!tui || tui.mode !== "regular") return;
     const adaptedTui = tui as AdaptedTui;
     const current = adaptedTui[REGULAR_RENDER_ADAPTER];
-    if (current?.owner === adapterOwner || current) return;
+    if (current) return;
     const baseRender = findRegularRender(tui);
     if (!baseRender) return;
     adaptedTui[REGULAR_RENDER_ADAPTER] = { owner: adapterOwner, baseRender };
     adaptedTui.render = (width: number) =>
       Reflect.apply(baseRender, tui, [isVisibleAtWidth(width) ? width - sidebarWidth : width]);
+    reserved = true;
   };
 
   const restoreRegularRenderAdapter = () => {
@@ -123,19 +130,30 @@ export function createSplitController(options: SplitControllerOptions = {}): Spl
     if (current?.owner !== adapterOwner) return;
     adaptedTui.render = current.baseRender;
     adaptedTui[REGULAR_RENDER_ADAPTER] = undefined;
+    reserved = false;
   };
 
   const syncFullscreenLayoutAdapter = () => {
     if (!tui || tui.mode !== "fullscreen" || !isViewportTUI(tui)) return;
     const adaptedTui = tui as AdaptedTui;
     const current = adaptedTui[FULLSCREEN_LAYOUT_ADAPTER];
-    if (current && current.owner !== adapterOwner) return;
+    if (current && current.owner !== adapterOwner) { reserved = false; return; }
     const root = adaptedTui.layoutRoot;
-    if (current?.owner === adapterOwner && root === current.splitRoot) return;
-    if (!root) return;
+    if (current?.owner === adapterOwner && root === current.splitRoot) { reserved = true; return; }
+    if (!root) {
+      // The private layout root is gone (a pi upgrade renamed it). Report once and stay
+      // unreserved, so the extension never paints over a column it did not take.
+      if (!reportedUnreserved) {
+        reportedUnreserved = true;
+        options.onError?.(new Error("pi's fullscreen layout root is unavailable; the sidebar column was not reserved"));
+      }
+      reserved = false;
+      return;
+    }
     const splitRoot = buildSplitRoot(root, sidebarWidth, isVisibleAtWidth);
     tui.setLayoutRoot(splitRoot);
     adaptedTui[FULLSCREEN_LAYOUT_ADAPTER] = { owner: adapterOwner, originalRoot: root, splitRoot };
+    reserved = true;
   };
 
   const restoreFullscreenLayoutAdapter = () => {
@@ -145,6 +163,7 @@ export function createSplitController(options: SplitControllerOptions = {}): Spl
     if (current?.owner !== adapterOwner) return;
     if (adaptedTui.layoutRoot === current.splitRoot) tui.setLayoutRoot(current.originalRoot);
     adaptedTui[FULLSCREEN_LAYOUT_ADAPTER] = undefined;
+    reserved = false;
   };
 
   return {
