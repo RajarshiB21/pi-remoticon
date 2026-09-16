@@ -1,6 +1,7 @@
 // Adapted from https://github.com/tintinweb/pi-tasks (MIT, (c) 2026 tintinweb) src/task-store.ts.
 // Deltas: types import from "./types.js" (no `owner` field); list() lost its sortOrder
-// parameter (the panel fixes the order); update() dropped the `owner` field; the
+// parameter (the panel fixes the order); update() dropped the `owner` field and gained an
+// optional in-lock `validate` callback whose refusal aborts the update without mutation;
 // TASKS_DIR shared-list path is gone — a bare string constructor argument is always
 // an absolute file path.
 import { randomUUID } from "node:crypto";
@@ -204,10 +205,22 @@ export class TaskStore {
     metadata?: Record<string, unknown>;
     addBlocks?: string[];
     addBlockedBy?: string[];
-  }): { task: Task | undefined; changedFields: string[]; warnings: string[] } {
+  }, validate?: (tasks: Map<string, Task>) => string | undefined): { task: Task | undefined; changedFields: string[]; warnings: string[]; refused?: string } {
+    // `validate` runs inside the lock, after the reload, before any mutation, so its
+    // invariants are checked against the state this update will actually apply to — not a
+    // view a second process on the same file can change between the check and the write.
+    // A refusal aborts without touching anything. Deletion is never validated: it is the exit.
+    // Contract: it receives the LIVE map — a mutation would be persisted with the update —
+    // and it runs while the lock is held, so calling the store's own mutating methods from
+    // inside it retries for ~5s and then throws `Failed to acquire lock`.
     return this.withLock(() => {
       const task = this.tasks.get(id);
       if (!task) return { task: undefined, changedFields: [], warnings: [] };
+
+      if (fields.status !== "deleted") {
+        const refusal = validate?.(this.tasks);
+        if (refusal) return { task: undefined, changedFields: [], warnings: [], refused: refusal };
+      }
 
       const changedFields: string[] = [];
       const warnings: string[] = [];
