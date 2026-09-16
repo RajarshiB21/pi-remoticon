@@ -142,6 +142,10 @@ export default function (pi: ExtensionAPI) {
           // On the TASKGO turn the user message is still the latest one, so toolCount starts at 0
           // and grows by one per emitted call: 0 -> in_progress, 1 -> completed.
           if (taskGo && (toolCount === 0 || toolCount === 1)) {
+            // Hold the in_progress state for a moment: without it both updates land
+            // inside one terminal render-throttle window and the spinner frame is
+            // never painted, so nothing can observe the in-progress row.
+            if (toolCount === 1) await delay(500, undefined, { signal: options?.signal });
             const args = toolCount === 0 ? { task_id: "1", status: "in_progress" } : { task_id: "1", status: "completed" };
             const toolCall = { type: "toolCall" as const, id: randomUUID(), name: "TaskUpdate", arguments: args };
             out.content.push(toolCall);
