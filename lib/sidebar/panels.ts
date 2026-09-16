@@ -2,7 +2,7 @@
 // https://github.com/mkaz/pi-mkaz-sidebar (MIT, (c) 2026 Michael Kazmierczak) src/sidebar.ts;
 // deltas: slots are budget-bounded and shrink before they drop, and a drop is announced.
 import { dockLine, type Painter } from "./paint.js";
-import { renderTasksSlot } from "./tasks/panel.js";
+import { renderTasksSlot, ROWS_SHOWN } from "./tasks/panel.js";
 import type { SlotGlyphs } from "./tasks/glyphs.js";
 import type { Task } from "./tasks/types.js";
 
@@ -19,7 +19,10 @@ export interface Slot {
 
 export function makeTasksSlot(now: () => number, tasks: () => readonly Task[], glyphs: SlotGlyphs, sidebarWidth: () => number): Slot {
   return {
-    id: "tasks", title: "TASKS", priority: 90, required: true, minRows: 4, maxRows: 6,
+    // The column keeps a slot's first `maxRows + 2` lines (see composeColumn). The panel draws
+    // a top border, ROWS_SHOWN task rows, the summary, the bottom border and one blank row, so
+    // a budget below ROWS_SHOWN + 2 silently trims the summary and the bottom border away.
+    id: "tasks", title: "TASKS", priority: 90, required: true, minRows: 4, maxRows: ROWS_SHOWN + 2,
     render: (p, _width, rowBudget) => renderTasksSlot(p, tasks(), now(), glyphs, sidebarWidth()).slice(0, rowBudget + 2),
   };
 }

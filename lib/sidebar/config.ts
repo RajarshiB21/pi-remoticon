@@ -11,7 +11,10 @@ export interface SidebarConfig {
 }
 export const DEFAULT_CONFIG: SidebarConfig = {
   sidebar: { width: 44, on: true },
-  slots: [{ id: "tasks", priority: 90, required: true, minRows: 4, maxRows: 6 }],
+  // Mirrors the TASKS slot's budget in lib/sidebar/panels.ts. The panel is built from code, not
+  // from this file, so nothing reads this; it is kept equal so the documented default is not a
+  // lie. `maxRows` must stay at or above ROWS_SHOWN + 2 or the panel loses its summary line.
+  slots: [{ id: "tasks", priority: 90, required: true, minRows: 4, maxRows: 9 }],
   tasks: { autoClear: "on_list_complete", glyphs: {} },
 };
 /** Read a config file. An absent file is normal and silent; a file that exists but does not

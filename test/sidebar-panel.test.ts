@@ -15,13 +15,14 @@ describe("window", () => {
     expect(windowTasks([mk("1", "pending"), mk("2", "pending")])).toHaveLength(2);
   });
   it("starts at the earliest unfinished task, keeping the just-finished row", () => {
-    const tasks = [mk("1", "completed"), mk("2", "completed"), mk("3", "in_progress"),
-      ...[4, 5, 6, 7].map(i => mk(String(i), "pending"))];
-    expect(windowTasks(tasks).map(t => t.id)).toEqual(["2", "3", "4", "5", "6"]);
+    // 12 tasks, not 7: with a 7-row window a 7-task list would fit whole and prove nothing.
+    const tasks = [mk("1", "completed"), mk("2", "completed"), mk("3", "completed"), mk("4", "completed"),
+      mk("5", "in_progress"), ...[6, 7, 8, 9, 10, 11, 12].map(i => mk(String(i), "pending"))];
+    expect(windowTasks(tasks).map(t => t.id)).toEqual(["4", "5", "6", "7", "8", "9", "10"]);
   });
-  it("shows the last five when everything is done", () => {
-    const tasks = [1, 2, 3, 4, 5, 6, 7].map(i => mk(String(i), "completed"));
-    expect(windowTasks(tasks).map(t => t.id)).toEqual(["3", "4", "5", "6", "7"]);
+  it("shows the last seven when everything is done", () => {
+    const tasks = Array.from({ length: 12 }, (_, i) => mk(String(i + 1), "completed"));
+    expect(windowTasks(tasks).map(t => t.id)).toEqual(["6", "7", "8", "9", "10", "11", "12"]);
   });
 });
 
@@ -67,11 +68,11 @@ describe("slot frames (golden)", () => {
     expect(lines[4]).toContain("1 completed \u00B7 2 pending");
     lines.forEach(l => expect(visibleWidth(l)).toBe(42));
   });
-  it("sixty tasks: exactly five rows plus the summary, no wrapping", () => {
+  it("sixty tasks: exactly seven rows plus the summary, no wrapping", () => {
     const many = Array.from({ length: 60 }, (_, i) => mk(String(i + 1), i < 10 ? "completed" : "pending"));
     const lines = frame(many);
     const rows = lines.filter(l => /(\u25CB|\u25CF|\u2733) \d\d /.test(l));
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(7);
     expect(lines.some(l => l.includes("hidden"))).toBe(false);
     lines.forEach(l => expect(l.split("\n")).toHaveLength(1));
   });

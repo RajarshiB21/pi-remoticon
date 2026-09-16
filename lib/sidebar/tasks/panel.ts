@@ -6,13 +6,13 @@ import { boxTop, boxRow, boxBottom, clip, type Painter } from "../paint.js";
 import type { SlotGlyphs } from "./glyphs.js";
 import type { Task } from "./types.js";
 
-export const ROWS_SHOWN = 5;
+export const ROWS_SHOWN = 7;
 const byId = (a: Task, b: Task) => Number(a.id) - Number(b.id);
 
 export function numWidthFor(tasks: readonly Task[]): number {
   return Math.max(2, ...tasks.map(t => t.id.length));
 }
-/** Five rows in number order, starting at the earliest unfinished task, one row
+/** Seven rows in number order, starting at the earliest unfinished task, one row
  *  earlier if that row is completed, so the just-finished work stays visible. */
 export function windowTasks(tasks: readonly Task[], count = ROWS_SHOWN): Task[] {
   const ordered = [...tasks].sort(byId);

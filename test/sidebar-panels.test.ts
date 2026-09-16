@@ -20,6 +20,16 @@ describe("composeColumn", () => {
     expect(column).toHaveLength(30);
     column.forEach(l => { expect(visibleWidth(l)).toBe(44); expect(l.startsWith("│")).toBe(true); });
   });
+  it("keeps the whole box inside the slot's row budget, summary and bottom border included", () => {
+    // Regression: the column keeps only a slot's first `maxRows + 2` lines, so a budget below
+    // ROWS_SHOWN + 2 trims the summary line and the bottom border off a full panel.
+    const many = Array.from({ length: 12 }, (_, i) => mk(String(i + 1), i < 2 ? "completed" : "pending"));
+    const column = composeColumn(p, [makeTasksSlot(() => 0, () => many, DEFAULT_GLYPHS, () => 44)], 30, 44);
+    const text = column.join("\n");
+    expect(text).toContain("\u2570");                         // the box is closed at the bottom
+    expect(text).toContain("2 completed \u00B7 10 pending");   // and the summary survived
+    expect(column.filter(l => /(\u25CB|\u25CF|\u2733) \d\d /.test(l))).toHaveLength(7);
+  });
   it("shrinks the lowest-priority slot before dropping anything", () => {
     const a = stub("alpha", 90, false, 6);
     const b = stub("beta", 10, false, 6);
