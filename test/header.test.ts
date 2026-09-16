@@ -8,10 +8,8 @@ import { buildHeaderLines } from "../lib/header-lines.js";
 const stubTheme = { fg: (_c: string, t: string) => t, bold: (t: string) => t } as unknown as Theme;
 
 describe("S2: buildHeaderLines", () => {
-  const lines = buildHeaderLines(stubTheme, "0.85.0");
-
-  it("returns the kept lines in the mockup's order", () => {
-    expect(lines).toEqual([
+  it("returns today's five lines at width 100", () => {
+    expect(buildHeaderLines(stubTheme, "0.85.0", 100)).toEqual([
       "pi v0.85.0",
       "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
       "Press ctrl+o to show full startup help and loaded resources.",
@@ -19,11 +17,18 @@ describe("S2: buildHeaderLines", () => {
       "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
     ]);
   });
-
-  it("includes none of the three loaded-resources blocks", () => {
-    const joined = lines.join("\n");
-    for (const block of ["[Context]", "[Skills]", "[Extensions]"]) {
-      expect(joined).not.toContain(block);
-    }
+  it("wraps the two long lines at the 76-column main width, losing no words", () => {
+    expect(buildHeaderLines(stubTheme, "0.85.0", 76)).toEqual([
+      "pi v0.85.0",
+      "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o",
+      "more",
+      "Press ctrl+o to show full startup help and loaded resources.",
+      "",
+      "Pi can explain its own features and look up its docs. Ask it how to use or",
+      "extend Pi.",
+    ]);
+  });
+  it("includes none of the loaded-resources blocks", () => {
+    expect(buildHeaderLines(stubTheme, "0.85.0", 76).join("\n")).not.toContain("[Context]");
   });
 });
