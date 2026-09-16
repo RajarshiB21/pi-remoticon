@@ -7,6 +7,7 @@
 // advertised the `owner`/`agentType` fields, the `deleted` status and the TaskExecute tool,
 // none of which this product exposes — leaving them would tell the model to use fields and
 // a tool that do not exist.
+// TaskUpdate's gates run inside the store's lock via update()'s `validate` callback.
 import { Type } from "typebox";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateHead } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -36,12 +37,12 @@ const formatTask = (t: Task, openBlockers: readonly string[]) =>
   + (openBlockers.length ? ` [blocked by ${openBlockers.map(id => `#${id}`).join(", ")}]` : "");
 /** Spec §8: dependencies are enforced by the tools AND printed in tool output, so the model
  *  can see what is blocked before starting it. Only unfinished blockers are worth showing. */
-const openBlockersAmong = (store: TaskStore, ids: readonly string[]): string[] =>
+const openBlockersAmong = (get: (id: string) => Task | undefined, ids: readonly string[]): string[] =>
   ids.filter(id => {
-    const blocker = store.get(id);
+    const blocker = get(id);
     return blocker !== undefined && blocker.status !== "completed";
   });
-const openBlockersOf = (store: TaskStore, task: Task): string[] => openBlockersAmong(store, task.blockedBy);
+const openBlockersOf = (get: (id: string) => Task | undefined, task: Task): string[] => openBlockersAmong(get, task.blockedBy);
 
 /** Task ids are the store's sequential numbers. An id that does not parse (a hand-edited
  *  file) counts as EARLIER than everything, not later: an unorderable row must never let
@@ -273,7 +274,8 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
     async execute(_id, args) {
       const store = getStore();
       const tasks = args.status ? store.list().filter(t => t.status === args.status) : store.list();
-      return textResult(bounded(tasks.length ? tasks.map(t => formatTask(t, openBlockersOf(store, t))).join("\n") : "No tasks"));
+      const get: (id: string) => Task | undefined = id => store.get(id);
+      return textResult(bounded(tasks.length ? tasks.map(t => formatTask(t, openBlockersOf(get, t))).join("\n") : "No tasks"));
     },
   });
   pi.registerTool({
@@ -285,7 +287,8 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
       const store = getStore();
       const t = store.get(args.task_id);
       if (!t) return textResult(`Error: #${args.task_id} not found`);
-      const lines = [formatTask(t, openBlockersOf(store, t)), ` ${t.description}`];
+      const get: (id: string) => Task | undefined = id => store.get(id);
+      const lines = [formatTask(t, openBlockersOf(get, t)), ` ${t.description}`];
       if (t.blocks.length > 0) lines.push(` Blocks: ${t.blocks.map(id => `#${id}`).join(", ")}`);
       return textResult(bounded(lines.join("\n")));
     },
@@ -301,71 +304,80 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
     parameters: TaskUpdateParams,
     async execute(_id, args) {
       const store = getStore();
-      const current = store.get(args.task_id);
-      if (!current) return textResult(`Error: #${args.task_id} not found`);
-      // A dependency may only point at an earlier-numbered task. A backward edge is an
-      // unrecoverable contradiction of the enforced sequence: the earlier task could never
-      // start (its blocker is later and unfinished) and the later could never finish (the
-      // earlier is unfinished). Refused at declaration, from either end, before it can
-      // deadlock the list.
-      for (const id of args.addBlockedBy ?? []) {
-        if (id !== args.task_id && idOrder(id) > idOrder(args.task_id)) {
-          return textResult(`Error: #${args.task_id} cannot depend on #${id} — dependencies point at earlier-numbered tasks; recreate this task after its prerequisite, or drop the dependency`);
-        }
-      }
-      for (const id of args.addBlocks ?? []) {
-        if (id === args.task_id) continue;               // a self-edge is the store's malformed-dependency warning
-        const target = store.get(id);
-        // Hanging an unfinished task on an in-progress one is the same violation the edge
-        // gate refuses on the target's own updates — it must not be creatable from this
-        // end either. A finished blocker is not an open one, so it stays allowed.
-        if (target?.status === "in_progress" && current.status !== "completed") {
-          return textResult(`Error: #${args.task_id} cannot block #${id} — #${id} is in progress and #${args.task_id} is unfinished; complete or delete #${args.task_id} first`);
-        }
-        if (idOrder(id) < idOrder(args.task_id)) {
-          return textResult(`Error: #${args.task_id} cannot block #${id} — dependencies point at earlier-numbered tasks; recreate #${id} after this task, or drop the dependency`);
-        }
-      }
-      // The rule is "in_progress implies no unfinished blockers", checked against the state this
-      // update would LEAVE rather than the one it starts from: a single call can both start a
-      // task and declare an unfinished blocker on it. A self-edge is a separate malformed-
-      // dependency defect the store already warns about, so it is excluded here. Reverting to
-      // pending, and edits that touch neither the status nor the edges, are never gated.
-      const touchesRule = args.status === "in_progress" || (args.addBlockedBy?.length ?? 0) > 0;
-      if (touchesRule && (args.status ?? current.status) === "in_progress") {
-        const proposed = [...new Set([...current.blockedBy, ...(args.addBlockedBy ?? [])])]
-          .filter(id => id !== args.task_id);
-        const open = openBlockersAmong(store, proposed);
-        if (open.length > 0) {
-          return textResult(`Error: #${args.task_id} is blocked by ${open.map(id => `#${id}`).join(", ")} — finish or unblock those first`);
-        }
-      }
-      // The generalized sequence gate. The blocker gate above is decoration the model walks
-      // past by simply not declaring an edge, and the owner's list must read as a workflow
-      // with no cooperation required: task number order IS the declared order. No task starts
-      // or completes while an earlier-numbered task is unfinished, and exactly one task may
-      // be in progress (the spinner marks what is happening now). `deleted` is the only exit
-      // for an earlier task that will never be done; edits that claim no work never gate.
-      if (args.status === "in_progress" || args.status === "completed") {
-        const verb = args.status === "in_progress" ? "started" : "completed";
-        const others = store.list().filter(t => t.id !== args.task_id);
-        const earlier = others
-          .filter(t => idOrder(t.id) < idOrder(args.task_id) && t.status !== "completed")
-          .sort((a, b) => idOrder(a.id) - idOrder(b.id));
-        if (earlier.length > 0) {
-          return textResult(`Error: #${args.task_id} cannot be ${verb} while #${earlier[0].id} is unfinished — work tasks in ID order, or set #${earlier[0].id} to deleted if it is no longer needed`);
-        }
-        if (args.status === "in_progress") {
-          const active = others.find(t => t.status === "in_progress");
-          if (active) {
-            return textResult(`Error: #${active.id} is already in_progress — complete it or set it to deleted before starting #${args.task_id}`);
+      // Every gate runs inside the store's lock, against the state this update will actually
+      // apply to (store.update's `validate`): a gate that reads the file before the lock can
+      // be raced by a second process sharing the session file, which is how the check-then-
+      // act window CodeRabbit flagged let a violating state land. `deleted` is never validated.
+      let previousStatus: TaskStatus | undefined;
+      const result = store.update(args.task_id, args, tasks => {
+        const current = tasks.get(args.task_id);
+        // Unreachable today — update() calls validate only when the id exists — kept for
+        // narrowing and for defense if that ever changes.
+        if (!current) return undefined;
+        previousStatus = current.status;
+        const get: (id: string) => Task | undefined = id => tasks.get(id);
+        // A dependency may only point at an earlier-numbered task. A backward edge is an
+        // unrecoverable contradiction of the enforced sequence: the earlier task could never
+        // start (its blocker is later and unfinished) and the later could never finish (the
+        // earlier is unfinished). Refused at declaration, from either end, before it can
+        // deadlock the list.
+        for (const id of args.addBlockedBy ?? []) {
+          if (id !== args.task_id && idOrder(id) > idOrder(args.task_id)) {
+            return `Error: #${args.task_id} cannot depend on #${id} — dependencies point at earlier-numbered tasks; recreate this task after its prerequisite, or drop the dependency`;
           }
         }
-      }
-      // Snapshot before the update: a memory-only store mutates the live object in place, so
-      // `current` and `result.task` are the same object and the transition would never show.
-      const previousStatus = current.status;
-      const result = store.update(args.task_id, args);
+        for (const id of args.addBlocks ?? []) {
+          if (id === args.task_id) continue;               // a self-edge is the store's malformed-dependency warning
+          const target = get(id);
+          // Hanging an unfinished task on an in-progress one is the same violation the edge
+          // gate refuses on the target's own updates — it must not be creatable from this
+          // end either. A finished blocker is not an open one, so it stays allowed.
+          if (target?.status === "in_progress" && current.status !== "completed") {
+            return `Error: #${args.task_id} cannot block #${id} — #${id} is in progress and #${args.task_id} is unfinished; complete or delete #${args.task_id} first`;
+          }
+          if (idOrder(id) < idOrder(args.task_id)) {
+            return `Error: #${args.task_id} cannot block #${id} — dependencies point at earlier-numbered tasks; recreate #${id} after this task, or drop the dependency`;
+          }
+        }
+        // The rule is "in_progress implies no unfinished blockers", checked against the state this
+        // update would LEAVE rather than the one it starts from: a single call can both start a
+        // task and declare an unfinished blocker on it. A self-edge is a separate malformed-
+        // dependency defect the store already warns about, so it is excluded here. Reverting to
+        // pending, and edits that touch neither the status nor the edges, are never gated.
+        const touchesRule = args.status === "in_progress" || (args.addBlockedBy?.length ?? 0) > 0;
+        if (touchesRule && (args.status ?? current.status) === "in_progress") {
+          const proposed = [...new Set([...current.blockedBy, ...(args.addBlockedBy ?? [])])]
+            .filter(id => id !== args.task_id);
+          const open = openBlockersAmong(get, proposed);
+          if (open.length > 0) {
+            return `Error: #${args.task_id} is blocked by ${open.map(id => `#${id}`).join(", ")} — finish or unblock those first`;
+          }
+        }
+        // The generalized sequence gate. The blocker gate above is decoration the model walks
+        // past by simply not declaring an edge, and the owner's list must read as a workflow
+        // with no cooperation required: task number order IS the declared order. No task starts
+        // or completes while an earlier-numbered task is unfinished, and exactly one task may
+        // be in progress (the spinner marks what is happening now). `deleted` is the only exit
+        // for an earlier task that will never be done; edits that claim no work never gate.
+        if (args.status === "in_progress" || args.status === "completed") {
+          const verb = args.status === "in_progress" ? "started" : "completed";
+          const others = Array.from(tasks.values()).filter(t => t.id !== args.task_id);
+          const earlier = others
+            .filter(t => idOrder(t.id) < idOrder(args.task_id) && t.status !== "completed")
+            .sort((a, b) => idOrder(a.id) - idOrder(b.id));
+          if (earlier.length > 0) {
+            return `Error: #${args.task_id} cannot be ${verb} while #${earlier[0].id} is unfinished — work tasks in ID order, or set #${earlier[0].id} to deleted if it is no longer needed`;
+          }
+          if (args.status === "in_progress") {
+            const active = others.find(t => t.status === "in_progress");
+            if (active) {
+              return `Error: #${active.id} is already in_progress — complete it or set it to deleted before starting #${args.task_id}`;
+            }
+          }
+        }
+        return undefined;
+      });
+      if (result.refused !== undefined) return textResult(result.refused);
       if (!result.task) {
         // A delete removes the task, so its result is `task: undefined` — the same shape as a
         // missing id, and `changedFields` is the only thing that tells them apart. Without this

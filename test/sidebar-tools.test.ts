@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { TaskStore } from "../lib/sidebar/tasks/store.js";
+import type { Task } from "../lib/sidebar/tasks/types.js";
 import { registerTaskTools, TASK_TOOL_NAMES } from "../lib/sidebar/tasks/tools.js";
 
 function fakePi() {
@@ -169,6 +170,62 @@ describe("sidebar tools", () => {
     await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
     expect(textOf(await run(pi, "TaskUpdate", { task_id: "1", addBlocks: ["2"] }))).toContain("Updated #1");
     expect(store.get("2")?.blockedBy).toEqual(["1"]);
+  });
+  it("enforces the sequence against the file's truth, not a stale in-memory view", async () => {
+    // A stale in-memory view never produces a false allowance: every read the gates make
+    // reloads the file. B (a second store on the same file) reverts #1 to pending after A
+    // watched it complete; A's next update must still refuse against the file's truth.
+    const dir = mkdtempSync(join(tmpdir(), "sidebar-race-"));
+    try {
+      const file = join(dir, "t.json");
+      const a = new TaskStore(file);
+      const b = new TaskStore(file);                   // the second process on the same file
+      const pi = fakePi();
+      registerTaskTools(pi, () => a, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+      const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+      await run(pi, "TaskCreate", { subject: "first", description: "" });
+      await run(pi, "TaskCreate", { subject: "second", description: "" });
+      await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
+      b.update("1", { status: "pending" });          // B reverts; A has not reloaded since
+      expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "completed" })))
+        .toContain("#2 cannot be completed while #1 is unfinished");
+      expect(a.get("2")?.status).toBe("pending");    // refused, nothing changed
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it("cannot write a violating state through the gate-read gap", async () => {
+    // Regression pin for the pre-fix shape, not a demonstration. Pre-fix, the gates read
+    // the file through store.list() BEFORE taking the lock; this injects B's write into
+    // exactly that gap, and on the pre-fix code the file ends with a completed #2 above a
+    // pending #1 (verified: the test fails on the pre-fix tree). Post-fix the gates run
+    // inside the lock on the live map and never call list(), so the injection cannot fire
+    // and this passes vacuously — what actually closes the window is that structure,
+    // verified by reading the two changed files. A regression that re-reads the file
+    // outside the lock through some other path would need its own test.
+    const dir = mkdtempSync(join(tmpdir(), "sidebar-gap-"));
+    try {
+      const file = join(dir, "t.json");
+      const a = new TaskStore(file);
+      const b = new TaskStore(file);
+      const pi = fakePi();
+      registerTaskTools(pi, () => a, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+      const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+      await run(pi, "TaskCreate", { subject: "first", description: "" });
+      await run(pi, "TaskCreate", { subject: "second", description: "" });
+      await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
+      // The injection: the next list() the gates read through fires B's write into the gap.
+      const originalList = a.list.bind(a);
+      let armed = true;
+      (a as unknown as { list: () => Task[] }).list = () => {
+        const tasks = originalList();
+        if (armed) { armed = false; b.update("1", { status: "pending" }); }
+        return tasks;
+      };
+      const result = await run(pi, "TaskUpdate", { task_id: "2", status: "completed" });
+      expect(textOf(result)).toContain("Updated #2");  // the update itself is legitimate
+      const fresh = new TaskStore(file);               // read the file's truth, no caches
+      const pair = fresh.get("1")?.status === "pending" && fresh.get("2")?.status === "completed";
+      expect(pair).toBe(false);                        // the violating pair can never exist
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
   it("fails closed when a hand-edited file leaves an unorderable id", async () => {
     // The store tolerates hand-edited files (load-boundary normalization accepts any string
