@@ -197,7 +197,7 @@ const UPDATE_DESCRIPTION = [
   "",
   "- Work tasks in ID order: a task cannot be set `in_progress` or `completed` while an earlier-numbered task is unfinished. If an earlier task will never be done, set it to `deleted` — that is the exit.",
   "- Exactly one task may be `in_progress` at a time: the spinner marks what is happening now. Complete or delete the current task before starting the next.",
-  "- A task with an unfinished `blockedBy` entry cannot be started.",
+  "- A task with an unfinished `blockedBy` entry cannot be started, and an `in_progress` task cannot gain one from either end of a declaration.",
   "- A dependency may only point at an earlier-numbered task: a later task may depend on an earlier one, never the reverse.",
   "",
   "A refused update changes nothing; the error names the task to finish or delete first.",
@@ -314,7 +314,15 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
         }
       }
       for (const id of args.addBlocks ?? []) {
-        if (id !== args.task_id && idOrder(id) < idOrder(args.task_id)) {
+        if (id === args.task_id) continue;               // a self-edge is the store's malformed-dependency warning
+        const target = store.get(id);
+        // Hanging an unfinished task on an in-progress one is the same violation the edge
+        // gate refuses on the target's own updates — it must not be creatable from this
+        // end either. A finished blocker is not an open one, so it stays allowed.
+        if (target?.status === "in_progress" && current.status !== "completed") {
+          return textResult(`Error: #${args.task_id} cannot block #${id} — #${id} is in progress and #${args.task_id} is unfinished; complete or delete #${args.task_id} first`);
+        }
+        if (idOrder(id) < idOrder(args.task_id)) {
           return textResult(`Error: #${args.task_id} cannot block #${id} — dependencies point at earlier-numbered tasks; recreate #${id} after this task, or drop the dependency`);
         }
       }

@@ -148,6 +148,28 @@ describe("sidebar tools", () => {
     // The forward direction is still legal — it is what ID order already implies.
     expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] }))).toContain("Updated #2");
   });
+  it("refuses to block an in-progress task with an unfinished one", async () => {
+    // CodeRabbit round 3: the edge gate watches the in-progress task's own updates, but
+    // #1 addBlocks ["2"] adds #1 to #2's blockedBy from the OTHER end, leaving in-progress
+    // #2 with an unfinished blocker the gate exists to prevent.
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "first", description: "" });
+    await run(pi, "TaskCreate", { subject: "second", description: "" });
+    await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
+    await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" });
+    await run(pi, "TaskUpdate", { task_id: "1", status: "pending" });        // reopen #1
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "1", addBlocks: ["2"] })))
+      .toContain("#2 is in progress and #1 is unfinished");
+    expect(store.get("2")?.blockedBy).toEqual([]);                            // refused: neither end landed
+    expect(store.get("1")?.blocks).toEqual([]);
+    // A finished task blocking an in-progress one is fine — it is not an open blocker.
+    await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "1", addBlocks: ["2"] }))).toContain("Updated #1");
+    expect(store.get("2")?.blockedBy).toEqual(["1"]);
+  });
   it("fails closed when a hand-edited file leaves an unorderable id", async () => {
     // The store tolerates hand-edited files (load-boundary normalization accepts any string
     // id), so the gate must not silently switch off for them: an unorderable row counts as
