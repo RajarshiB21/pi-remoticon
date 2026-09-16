@@ -31,11 +31,12 @@ const formatTask = (t: Task, openBlockers: readonly string[]) =>
   + (openBlockers.length ? ` [blocked by ${openBlockers.map(id => `#${id}`).join(", ")}]` : "");
 /** Spec §8: dependencies are enforced by the tools AND printed in tool output, so the model
  *  can see what is blocked before starting it. Only unfinished blockers are worth showing. */
-const openBlockersOf = (store: TaskStore, task: Task): string[] =>
-  task.blockedBy.filter(id => {
+const openBlockersAmong = (store: TaskStore, ids: readonly string[]): string[] =>
+  ids.filter(id => {
     const blocker = store.get(id);
     return blocker !== undefined && blocker.status !== "completed";
   });
+const openBlockersOf = (store: TaskStore, task: Task): string[] => openBlockersAmong(store, task.blockedBy);
 
 const CREATE_DESCRIPTION = [
   "Use this tool to create a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.",
@@ -271,11 +272,16 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
       const store = getStore();
       const current = store.get(args.task_id);
       if (!current) return textResult(`Error: #${args.task_id} not found`);
-      // Spec §8 and this tool's own description say a blocked task cannot be claimed. Refusing
-      // beats letting the model start blocked work, and the error names what to finish first.
-      // Only entering in_progress is gated: reverting to pending is always allowed.
-      if (args.status === "in_progress") {
-        const open = openBlockersOf(store, current);
+      // The rule is "in_progress implies no unfinished blockers", checked against the state this
+      // update would LEAVE rather than the one it starts from: a single call can both start a
+      // task and declare an unfinished blocker on it. A self-edge is a separate malformed-
+      // dependency defect the store already warns about, so it is excluded here. Reverting to
+      // pending, and edits that touch neither the status nor the edges, are never gated.
+      const touchesRule = args.status === "in_progress" || (args.addBlockedBy?.length ?? 0) > 0;
+      if (touchesRule && (args.status ?? current.status) === "in_progress") {
+        const proposed = [...new Set([...current.blockedBy, ...(args.addBlockedBy ?? [])])]
+          .filter(id => id !== args.task_id);
+        const open = openBlockersAmong(store, proposed);
         if (open.length > 0) {
           return textResult(`Error: #${args.task_id} is blocked by ${open.map(id => `#${id}`).join(", ")} — finish or unblock those first`);
         }

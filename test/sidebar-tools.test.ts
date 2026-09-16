@@ -97,6 +97,33 @@ describe("sidebar tools", () => {
     expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" }))).toContain("Updated #2 (pending → in_progress)");
     expect(store.get("2")?.status).toBe("in_progress");
   });
+  it("refuses in_progress when the same update is what adds an unfinished blocker", async () => {
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "blocker", description: "" });
+    await run(pi, "TaskCreate", { subject: "dependent", description: "" });
+    // One call that would both start #2 and hang an unfinished blocker on it.
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress", addBlockedBy: ["1"] }))).toContain("#2 is blocked by #1");
+    expect(store.get("2")?.status).toBe("pending");           // the update was refused whole
+    expect(store.get("2")?.blockedBy).toEqual([]);            // so neither the status nor the edge landed
+    expect(store.get("1")?.blocks).toEqual([]);               // nor the reverse edge
+  });
+  it("refuses adding an unfinished blocker to a task already in progress", async () => {
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "blocker", description: "" });
+    await run(pi, "TaskCreate", { subject: "dependent", description: "" });
+    await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" });   // legitimately started
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] }))).toContain("#2 is blocked by #1");
+    expect(store.get("2")?.blockedBy).toEqual([]);                          // refused
+    // An edit that touches neither the status nor the edges is still allowed.
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", subject: "renamed" }))).toContain("Updated #2");
+    expect(store.get("2")?.subject).toBe("renamed");
+  });
   it("accepts metadata on update, including a null value that deletes the key", async () => {
     const store = new TaskStore();
     const pi = fakePi();
