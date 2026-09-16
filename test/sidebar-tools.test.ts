@@ -115,14 +115,58 @@ describe("sidebar tools", () => {
     const pi = fakePi();
     registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
     const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
-    await run(pi, "TaskCreate", { subject: "blocker", description: "" });
-    await run(pi, "TaskCreate", { subject: "dependent", description: "" });
+    await run(pi, "TaskCreate", { subject: "done first", description: "" });      // #1
+    await run(pi, "TaskCreate", { subject: "dependent", description: "" });        // #2
+    await run(pi, "TaskCreate", { subject: "later blocker", description: "" });    // #3
+    await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
     await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" });   // legitimately started
-    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] }))).toContain("#2 is blocked by #1");
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["3"] }))).toContain("#2 is blocked by #3");
     expect(store.get("2")?.blockedBy).toEqual([]);                          // refused
     // An edit that touches neither the status nor the edges is still allowed.
     expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", subject: "renamed" }))).toContain("Updated #2");
     expect(store.get("2")?.subject).toBe("renamed");
+  });
+  it("refuses out-of-order work with no declared edges at all", async () => {
+    // The owner's dishonesty complaint: a model leaving #1 unfinished while starting or
+    // completing a task after it. Declared edges were trivially bypassed by not declaring
+    // them, so task number order is now the declared order and the tool enforces it.
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "first", description: "" });
+    await run(pi, "TaskCreate", { subject: "second", description: "" });
+    await run(pi, "TaskCreate", { subject: "third", description: "" });
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" })))
+      .toContain("#2 cannot be started while #1 is unfinished");
+    expect(store.get("2")?.status).toBe("pending");                     // refused, nothing changed
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "3", status: "completed" })))
+      .toContain("#3 cannot be completed while #1 is unfinished");       // the exact dishonest pattern
+    expect(store.get("3")?.status).toBe("pending");
+    await run(pi, "TaskUpdate", { task_id: "1", status: "in_progress" });   // in order: allowed
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" })))
+      .toContain("#2 cannot be started while #1 is unfinished");        // ID order names the earlier task
+    expect(store.get("2")?.status).toBe("pending");
+    await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" }))).toContain("Updated #2");
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "deleted" }))).toBe("Deleted #2");   // the exit
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "3", status: "in_progress" }))).toContain("Updated #3");
+  });
+  it("refuses a second in_progress task, including after a revert", async () => {
+    // One spinner marks what is happening now. A revert can leave a later task active, so
+    // this gate has its own message even though ID order usually fires first.
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "first", description: "" });
+    await run(pi, "TaskCreate", { subject: "second", description: "" });
+    await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
+    await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" });
+    await run(pi, "TaskUpdate", { task_id: "1", status: "pending" });     // reopened, allowed
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "1", status: "in_progress" })))
+      .toContain("#2 is already in_progress — complete it or set it to deleted before starting #1");
+    expect(store.get("1")?.status).toBe("pending");                     // refused, nothing changed
   });
   it("accepts metadata on update, including a null value that deletes the key", async () => {
     const store = new TaskStore();

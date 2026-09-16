@@ -186,6 +186,16 @@ const UPDATE_DESCRIPTION = [
   "",
   "`deleted` is not a step in that progression: it removes the task. Use it for a task that is no longer needed or has been superseded, so it stops showing on the user's list.",
   "",
+  "## Enforced Sequence",
+  "",
+  "The user reads the task list as the workflow, and the tool enforces that reading:",
+  "",
+  "- Work tasks in ID order: a task cannot be set `in_progress` or `completed` while an earlier-numbered task is unfinished. If an earlier task will never be done, set it to `deleted` — that is the exit.",
+  "- Exactly one task may be `in_progress` at a time: the spinner marks what is happening now. Complete or delete the current task before starting the next.",
+  "- A task with an unfinished `blockedBy` entry cannot be started.",
+  "",
+  "A refused update changes nothing; the error names the task to finish or delete first.",
+  "",
   "## Staleness",
   "",
   "Make sure to read a task's latest state using `TaskGet` before updating it.",
@@ -278,6 +288,10 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
     name: "TaskUpdate",
     label: "TaskUpdate",
     description: UPDATE_DESCRIPTION,
+    promptGuidelines: [
+      "Mark a task in_progress before starting work on it, and completed in the same turn the work finishes.",
+      "Work tasks in ID order and keep exactly one in_progress; the tool refuses out-of-order updates.",
+    ],
     parameters: TaskUpdateParams,
     async execute(_id, args) {
       const store = getStore();
@@ -295,6 +309,28 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
         const open = openBlockersAmong(store, proposed);
         if (open.length > 0) {
           return textResult(`Error: #${args.task_id} is blocked by ${open.map(id => `#${id}`).join(", ")} — finish or unblock those first`);
+        }
+      }
+      // The generalized sequence gate. The blocker gate above is decoration the model walks
+      // past by simply not declaring an edge, and the owner's list must read as a workflow
+      // with no cooperation required: task number order IS the declared order. No task starts
+      // or completes while an earlier-numbered task is unfinished, and exactly one task may
+      // be in progress (the spinner marks what is happening now). `deleted` is the only exit
+      // for an earlier task that will never be done; edits that claim no work never gate.
+      if (args.status === "in_progress" || args.status === "completed") {
+        const verb = args.status === "in_progress" ? "started" : "completed";
+        const others = store.list().filter(t => t.id !== args.task_id);
+        const earlier = others
+          .filter(t => Number(t.id) < Number(args.task_id) && t.status !== "completed")
+          .sort((a, b) => Number(a.id) - Number(b.id));
+        if (earlier.length > 0) {
+          return textResult(`Error: #${args.task_id} cannot be ${verb} while #${earlier[0].id} is unfinished — work tasks in ID order, or set #${earlier[0].id} to deleted if it is no longer needed`);
+        }
+        if (args.status === "in_progress") {
+          const active = others.find(t => t.status === "in_progress");
+          if (active) {
+            return textResult(`Error: #${active.id} is already in_progress — complete it or set it to deleted before starting #${args.task_id}`);
+          }
         }
       }
       // Snapshot before the update: a memory-only store mutates the live object in place, so
