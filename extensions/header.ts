@@ -19,8 +19,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode === "tui") {
       ctx.ui.setHeader((_tui, theme) => ({
-        render(): string[] {
-          return buildHeaderLines(theme, VERSION);
+        render(width: number): string[] {
+          return buildHeaderLines(theme, VERSION, width);
         },
         invalidate() {},
       }));
