@@ -93,6 +93,8 @@ export default function (pi: ExtensionAPI) {
           const long = JSON.stringify(latestUser?.content ?? "").includes("LONG");
           const groupRun = JSON.stringify(latestUser?.content ?? "").includes("GROUPTOOLS");
           const fetchBad = JSON.stringify(latestUser?.content ?? "").includes("FETCHBAD");
+          const taskPlan = JSON.stringify(latestUser?.content ?? "").includes("TASKPLAN");
+          const taskGo = JSON.stringify(latestUser?.content ?? "").includes("TASKGO");
           const latestIndex = context.messages.lastIndexOf(latestUser!);
           const toolCount = context.messages.slice(latestIndex + 1).filter(message => message.role === "toolResult").length;
           if ((polish || restore && toolCount === 0 || boundary && toolCount < 2) && !wantsToolCall(context)) {
@@ -115,6 +117,38 @@ export default function (pi: ExtensionAPI) {
             stream.push({ type: "toolcall_start", contentIndex: 0, partial: out });
             stream.push({ type: "toolcall_delta", contentIndex: 0, delta: argsJson, partial: out });
             stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: out });
+            out.stopReason = "toolUse";
+            stream.push({ type: "done", reason: out.stopReason, message: out });
+            stream.end();
+            return;
+          }
+          if (taskPlan && toolCount === 0) {
+            // Three TaskCreate calls in one turn: the sidebar's empty slot becomes a
+            // three-row list with a summary line.
+            for (const n of [1, 2, 3]) {
+              const toolCall = { type: "toolCall" as const, id: randomUUID(), name: "TaskCreate",
+                arguments: { subject: `Sidebar task ${n}`, description: `Fixture task ${n}`, activeForm: `Working sidebar task ${n}` } };
+              out.content.push(toolCall);
+              const contentIndex = out.content.length - 1;
+              stream.push({ type: "toolcall_start", contentIndex, partial: out });
+              stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(toolCall.arguments), partial: out });
+              stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: out });
+            }
+            out.stopReason = "toolUse";
+            stream.push({ type: "done", reason: out.stopReason, message: out });
+            stream.end();
+            return;
+          }
+          // On the TASKGO turn the user message is still the latest one, so toolCount starts at 0
+          // and grows by one per emitted call: 0 -> in_progress, 1 -> completed.
+          if (taskGo && (toolCount === 0 || toolCount === 1)) {
+            const args = toolCount === 0 ? { task_id: "1", status: "in_progress" } : { task_id: "1", status: "completed" };
+            const toolCall = { type: "toolCall" as const, id: randomUUID(), name: "TaskUpdate", arguments: args };
+            out.content.push(toolCall);
+            const contentIndex = out.content.length - 1;
+            stream.push({ type: "toolcall_start", contentIndex, partial: out });
+            stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(args), partial: out });
+            stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: out });
             out.stopReason = "toolUse";
             stream.push({ type: "done", reason: out.stopReason, message: out });
             stream.end();

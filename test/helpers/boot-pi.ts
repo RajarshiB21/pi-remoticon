@@ -47,12 +47,12 @@ export function validateTestArgs(args: readonly string[]): void {
   }
 }
 
-export interface BootSettings { quietStartup?: boolean; package?: boolean; skill?: boolean }
+export interface BootSettings { quietStartup?: boolean; package?: boolean; skill?: boolean; env?: Record<string, string> }
 
 /** Boot the offline fake model with fresh directories, removed when the terminal closes. */
 export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], settings: BootSettings = {}, cwd?: string, piCli = PI_CLI): Promise<TestTerminal> {
   validateTestArgs(extraArgs);
-  if (Object.keys(settings).some(key => key !== "quietStartup" && key !== "package" && key !== "skill")) throw new Error("Only fixture startup/package settings are allowed");
+  if (Object.keys(settings).some(key => !["quietStartup", "package", "skill", "env"].includes(key))) throw new Error("Only fixture startup/package settings are allowed");
   const home = mkdtempSync(join(tmpdir(), "pi-test-"));
   let term: TestTerminal | undefined;
   try {
@@ -85,7 +85,7 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
     await term.spawn([
       process.execPath, piCli, "-e", FAKE_PROVIDER, "--provider", "fake", "--model", "fake/fake-model",
       "--tui-mode", "fullscreen", "--offline", "--no-context-files", "--no-skills", ...(settings.skill ? ["--skill", join(skillDir, "SKILL.md")] : []), "--no-prompt-templates", "--no-approve", ...extraArgs,
-    ], { cwd, env: testEnvironment(home) });
+    ], { cwd, env: testEnvironment(home, process.env, process.platform === "win32", settings.env) });
     await term.waitFor("pi v", paintMs);
     await term.waitFor("fake-model", paintMs);
     await term.waitForStable(400, stableMs);
