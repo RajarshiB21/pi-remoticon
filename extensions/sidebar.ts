@@ -79,6 +79,7 @@ export default function (pi: ExtensionAPI): void {
       requestRender = () => tui.requestRender();
       resolveOverlay = done;
       split?.attach(tui);
+      split?.show();                                   // the column's visibility predicate reads `enabled`
       const rowHeight = () => tui.terminal.rows;
       syncSpinner();
       return {

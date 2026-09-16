@@ -51,10 +51,17 @@ export interface SplitController {
 }
 
 /** The reserved-column root: main keeps the rest of the width, the column takes
- *  `sidebarWidth` and is excluded entirely when `visible` says no. */
-export const buildSplitRoot = (originalRoot: Component, sidebarWidth: number, minMain: number, visible: (width: number) => boolean): HStack =>
+ *  `sidebarWidth` and is excluded entirely when `visible` says no.
+ *
+ *  Deltas from upstream: main's `minSize` is 0 rather than 64, and the floor is no
+ *  longer a parameter here. Upstream's static 64 binds even when the column is
+ *  hidden, so on a terminal narrower than 64 the main column renders 64 cells wide
+ *  and the terminal clips its right edge. The caller's `visible` predicate already
+ *  guarantees main >= 64 whenever the column is shown (it requires
+ *  `width >= 64 + sidebarWidth`), so the floor only ever did harm. */
+export const buildSplitRoot = (originalRoot: Component, sidebarWidth: number, visible: (width: number) => boolean): HStack =>
   new HStack([
-    { component: originalRoot, basis: 0, grow: 1, shrink: 1, minSize: minMain },
+    { component: originalRoot, basis: 0, grow: 1, shrink: 1, minSize: 0 },
     {
       component: { render: () => [], invalidate() {} },
       basis: sidebarWidth,
@@ -126,7 +133,7 @@ export function createSplitController(options: SplitControllerOptions = {}): Spl
     const root = adaptedTui.layoutRoot;
     if (current?.owner === adapterOwner && root === current.splitRoot) return;
     if (!root) return;
-    const splitRoot = buildSplitRoot(root, sidebarWidth, minMainWidth, isVisibleAtWidth);
+    const splitRoot = buildSplitRoot(root, sidebarWidth, isVisibleAtWidth);
     tui.setLayoutRoot(splitRoot);
     adaptedTui[FULLSCREEN_LAYOUT_ADAPTER] = { owner: adapterOwner, originalRoot: root, splitRoot };
   };
