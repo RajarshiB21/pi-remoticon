@@ -21,7 +21,20 @@ export function testEnvironment(home: string, inherited = process.env, windows =
     PI_CODING_AGENT_SESSION_DIR: join(home, "sessions"),
     NODE_OPTIONS: "", TERM: "xterm-256color", COLORTERM: "truecolor", PI_TRUE_COLOR: "1",
   };
-  for (const [key, value] of Object.entries(controlled)) env[names.get(keyId(key)) ?? key] = value;
-  for (const [key, value] of Object.entries(extra)) env[key] = value;
+  // Controlled names are registered so an `extra` key cannot arrive under a second casing
+  // (Windows environment names are case-insensitive, so `Path` and `PATH` are the same entry
+  // and the explicit override would be ambiguous).
+  for (const [key, value] of Object.entries(controlled)) {
+    const id = keyId(key);
+    const name = names.get(id) ?? key;
+    names.set(id, name);
+    env[name] = value;
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    const id = keyId(key);
+    const name = names.get(id) ?? key;
+    names.set(id, name);
+    env[name] = value;
+  }
   return env;
 }

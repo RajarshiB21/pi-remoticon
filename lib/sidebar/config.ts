@@ -32,6 +32,14 @@ const readJson = (path: string, onInvalid?: (path: string) => void): Record<stri
 };
 const asObject = (v: unknown): Record<string, unknown> => (v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {});
 
+const AUTO_CLEAR_MODES = ["never", "on_list_complete", "on_task_complete"] as const;
+const isAutoClearMode = (v: unknown): v is SidebarConfig["tasks"]["autoClear"] =>
+  typeof v === "string" && (AUTO_CLEAR_MODES as readonly string[]).includes(v);
+/** The first VALID value wins, so a typo in the project file falls through to the global value
+ *  rather than silently disabling auto-clear. Config is external data: validated, not cast. */
+const pickAutoClear = (...candidates: unknown[]): SidebarConfig["tasks"]["autoClear"] =>
+  candidates.find(isAutoClearMode) ?? DEFAULT_CONFIG.tasks.autoClear;
+
 export function loadConfig(agentDir: string, cwd?: string, trusted = true, onInvalidJson?: (path: string) => void): SidebarConfig {
   const globalFile = asObject(readJson(join(agentDir, "remoticon-sidebar.json"), onInvalidJson));
   const projectFile = trusted && cwd ? asObject(readJson(join(cwd, ".pi", "remoticon-sidebar.json"), onInvalidJson)) : {};
@@ -45,7 +53,7 @@ export function loadConfig(agentDir: string, cwd?: string, trusted = true, onInv
     sidebar: { width: Number.isInteger(width) && width >= 28 && width <= 60 ? width : DEFAULT_CONFIG.sidebar.width, on: on !== false },
     slots: Array.isArray(projectFile.slots) ? projectFile.slots as SidebarConfig["slots"] : Array.isArray(globalFile.slots) ? globalFile.slots as SidebarConfig["slots"] : DEFAULT_CONFIG.slots,
     tasks: {
-      autoClear: (projectTasks.autoClear ?? globalTasks.autoClear ?? DEFAULT_CONFIG.tasks.autoClear) as SidebarConfig["tasks"]["autoClear"],
+      autoClear: pickAutoClear(projectTasks.autoClear, globalTasks.autoClear),
       glyphs: { ...asObject(globalTasks.glyphs), ...asObject(projectTasks.glyphs) },
     },
   };

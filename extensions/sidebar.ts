@@ -37,8 +37,19 @@ export default function (pi: ExtensionAPI): void {
 
   const refresh = () => { tasks = store.list(); };
   const changed = () => { refresh(); requestRender?.(); syncSpinner(); };
-  const painter = (ctx: ExtensionContext): Painter => makePainter(ctx.ui.theme,
-    role => ctx.ui.notify(`Theme has no "${role}" color; sidebar falls back to text`, "warning"));
+  let painterTheme: unknown;
+  let cachedPainter: Painter | undefined;
+  /** One painter per theme. `makePainter` reports an unknown role once per instance, and the
+   *  painter is built inside `render` — a fresh one each frame would repeat that toast on every
+   *  repaint, and the spinner repaints every 150 ms while a task is in progress. */
+  const painterFor = (ctx: ExtensionContext): Painter => {
+    if (!cachedPainter || painterTheme !== ctx.ui.theme) {
+      painterTheme = ctx.ui.theme;
+      cachedPainter = makePainter(ctx.ui.theme,
+        role => ctx.ui.notify(`Theme has no "${role}" color; sidebar falls back to text`, "warning"));
+    }
+    return cachedPainter;
+  };
   const syncSpinner = () => {
     const running = tasks.some(t => t.status === "in_progress");
     if (motion && running && requestRender && !spinnerTimer) {
@@ -95,7 +106,7 @@ export default function (pi: ExtensionAPI): void {
       return {
         render(width: number) {
           void width;                                   // the column owns its width; pi paints rows
-          return composeColumn(painter(ctx), slots, rowHeight(), cfg.sidebar.width);
+          return composeColumn(painterFor(ctx), slots, rowHeight(), cfg.sidebar.width);
         },
         invalidate() {},
       };

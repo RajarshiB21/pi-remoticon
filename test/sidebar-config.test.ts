@@ -56,6 +56,14 @@ describe("sidebar config", () => {
     writeFileSync(join(agent, "remoticon-sidebar.json"), JSON.stringify({ sidebar: { width: 99 } }));
     expect(projectOverrideActive(loadConfig(agent, cwd, true), agent)).toBe(false);
   });
+  it("ignores an autoClear outside the three modes, falling through to the next valid value", () => {
+    writeProject({ tasks: { autoClear: "always" } });                                  // typo, no global value
+    expect(loadConfig(agent, cwd, true).tasks.autoClear).toBe("on_list_complete");       // the default
+    writeFileSync(join(agent, "remoticon-sidebar.json"), JSON.stringify({ tasks: { autoClear: "never" } }));
+    expect(loadConfig(agent, cwd, true).tasks.autoClear).toBe("never");                  // project typo -> global wins
+    writeProject({ tasks: { autoClear: "on_task_complete" } });
+    expect(loadConfig(agent, cwd, true).tasks.autoClear).toBe("on_task_complete");       // a valid project value wins
+  });
   it("reports a config file that exists but holds no JSON object", () => {
     const reported: string[] = [];
     const report = (p: string) => { reported.push(p); };

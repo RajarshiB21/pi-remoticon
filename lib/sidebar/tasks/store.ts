@@ -150,14 +150,15 @@ export class TaskStore {
     renameSync(tmpPath, this.filePath);
   }
 
-  /** Execute a mutation with file locking (if file-backed). */
-  private withLock<T>(fn: () => T): T {
+  /** Execute a mutation with file locking (if file-backed). `save: false` is for callers whose
+   *  effect IS the file — deletion — so the write-back does not undo it. */
+  private withLock<T>(fn: () => T, save = true): T {
     if (!this.lockPath) return fn();
     const token = acquireLock(this.lockPath);
     try {
       this.load(); // Re-read latest state
       const result = fn();
-      this.save();
+      if (save) this.save();
       return result;
     } finally {
       releaseLock(this.lockPath, token);
@@ -333,8 +334,10 @@ export class TaskStore {
   /** Seed an empty store from a snapshot. No-op if the store already has tasks,
    * so re-pointing to an already-seeded fork file never duplicates. */
   seed(data: TaskStoreData): void {
-    if (this.tasks.size > 0) return;
+    // The emptiness check goes INSIDE the lock: another session can persist tasks between an
+    // outside check and the lock, and `load()` would then read them only to be overwritten.
     this.withLock(() => {
+      if (this.tasks.size > 0) return;
       this.nextId = data.nextId;
       this.tasks.clear();
       for (const t of data.tasks) this.tasks.set(t.id, t);
@@ -343,9 +346,15 @@ export class TaskStore {
 
   /** Delete the backing file (if file-backed and empty). */
   deleteFileIfEmpty(): boolean {
-    if (!this.filePath || this.tasks.size > 0) return false;
-    try { unlinkSync(this.filePath); } catch { /* ignore */ }
-    return true;
+    const filePath = this.filePath;
+    if (!filePath) return false;
+    // Check and unlink under the lock, for the same reason as `seed`, and skip the save so the
+    // write-back does not recreate the file that was just removed.
+    return this.withLock(() => {
+      if (this.tasks.size > 0) return false;
+      try { unlinkSync(filePath); } catch { /* ignore */ }
+      return true;
+    }, false);
   }
 
   /** Remove all completed tasks. */

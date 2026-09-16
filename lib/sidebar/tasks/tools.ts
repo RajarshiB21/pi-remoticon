@@ -268,13 +268,26 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
     description: UPDATE_DESCRIPTION,
     parameters: TaskUpdateParams,
     async execute(_id, args) {
-      const current = getStore().get(args.task_id);
+      const store = getStore();
+      const current = store.get(args.task_id);
       if (!current) return textResult(`Error: #${args.task_id} not found`);
-      const result = getStore().update(args.task_id, args);
+      // Spec §8 and this tool's own description say a blocked task cannot be claimed. Refusing
+      // beats letting the model start blocked work, and the error names what to finish first.
+      // Only entering in_progress is gated: reverting to pending is always allowed.
+      if (args.status === "in_progress") {
+        const open = openBlockersOf(store, current);
+        if (open.length > 0) {
+          return textResult(`Error: #${args.task_id} is blocked by ${open.map(id => `#${id}`).join(", ")} — finish or unblock those first`);
+        }
+      }
+      // Snapshot before the update: a memory-only store mutates the live object in place, so
+      // `current` and `result.task` are the same object and the transition would never show.
+      const previousStatus = current.status;
+      const result = store.update(args.task_id, args);
       if (!result.task) return textResult(`Error: #${args.task_id} not found`);
       hooks.afterUpdate(args.task_id, { status: args.status });
       onChange();
-      const transition = current.status === result.task.status ? "" : ` (${current.status} → ${result.task.status})`;
+      const transition = previousStatus === result.task.status ? "" : ` (${previousStatus} → ${result.task.status})`;
       const warnings = result.warnings.length ? `\nWarnings: ${result.warnings.join("; ")}` : "";
       return textResult(`Updated #${result.task.id}${transition}${warnings}`);
     },

@@ -92,6 +92,26 @@ describe("the column must be reserved before the overlay paints", () => {
     // Regression: show() alone used to make this true, painting 44 columns over live main content.
     expect((c.overlayOptions().visible as (w: number) => boolean)(200)).toBe(false);
   });
+  it("rebuilds the reserved column even while the sidebar is hidden", () => {
+    // Regression: rebuild() used to skip the adapters while hidden, so the installed split root
+    // kept the OLD width and a later show() would paint over main content.
+    let mainWidth = 0;
+    const main = { render: (w: number) => { mainWidth = w; return ["main"]; }, invalidate: () => {} };
+    const { fake, state } = fakeViewport(main);
+    const renderRoot = () => (state.root as { render(w: number): string[] }).render(120);
+    const c = createSplitController({ width: 44 });
+    c.attach(fake);
+    c.show();
+    renderRoot();
+    expect(mainWidth).toBe(76);                      // 120 - 44
+    c.hide();
+    c.rebuild(50);
+    renderRoot();
+    expect(mainWidth).toBe(120);                     // hidden: the column is excluded entirely
+    c.show();
+    renderRoot();
+    expect(mainWidth).toBe(70);                      // 120 - 50: the reservation followed the rebuild
+  });
   it("reserves the column, paints, and gives the width back on dispose", () => {
     const original = box("main");
     const errors: unknown[] = [];

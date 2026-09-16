@@ -39,4 +39,13 @@ describe("paint: box geometry", () => {
     expect(clipped).toBe("Write the sidebar compose te...");
     expect(visibleWidth(clipped)).toBe(31);
   });
+  it("clips by display cells, so a wide-character subject still fits the field", () => {
+    // Counting code points let a CJK subject run past the 31-cell field and break the box.
+    const cjk = clip("\u4e2d".repeat(20), 31);
+    expect(visibleWidth(cjk)).toBe(31);
+    expect(cjk.endsWith("...")).toBe(true);
+    const mixed = clip("ab\u4e2d".repeat(12), 31);
+    expect(visibleWidth(mixed)).toBeLessThanOrEqual(31);
+    expect(visibleWidth(clip("\u4e2d".repeat(5), 31))).toBe(10);   // already fits: untouched
+  });
 });

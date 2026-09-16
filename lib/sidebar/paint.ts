@@ -2,7 +2,7 @@
 // Adapted from https://github.com/mkaz/pi-mkaz-sidebar (MIT, (c) 2026 Michael Kazmierczak):
 // the role-paint model of src/palette.ts and the dock/box drawing of src/sidebar.ts.
 // No color value is stored here: every element paints by theme role at render time.
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth, truncateToWidth, stripTerminalSequences } from "@earendil-works/pi-tui";
 
 export type Role = "text" | "dim" | "muted" | "accent" | "success" | "customMessageLabel" | "warning" | "error";
 export interface ThemeLike { fg(role: string, text: string): string; bold(text: string): string; }
@@ -31,10 +31,14 @@ export const GLYPHS = { v: "\u2502", tl: "\u256D", tr: "\u256E", bl: "\u2570", b
 
 /** Clip PLAIN text (never colored strings) to width with a trailing marker.
  *  Slices by code point so a surrogate pair is never split. */
+/** Clip PLAIN text (never colored strings) to `width` DISPLAY CELLS with a trailing marker.
+ *  Code points are not cells: counting them lets a CJK or emoji subject run past the fixed
+ *  31-cell field and break the box alignment, so the measurement goes through
+ *  `truncateToWidth`. That helper marks its cut with ANSI resets, and the result is handed to
+ *  `theme.fg` as text, so it is taken back to plain text. */
 export function clip(text: string, width: number, marker = "..."): string {
   if (visibleWidth(text) <= width) return text;
-  const keep = Math.max(1, width - visibleWidth(marker));
-  return Array.from(text).slice(0, keep).join("") + marker;
+  return stripTerminalSequences(truncateToWidth(text, width, marker));
 }
 const padTo = (text: string, width: number) => text + " ".repeat(Math.max(0, width - visibleWidth(text)));
 

@@ -81,6 +81,22 @@ describe("sidebar tools", () => {
     await run(pi, "TaskUpdate", { task_id: "1", status: "completed" });
     expect(textOf(await run(pi, "TaskList", {}))).not.toContain("blocked by");   // a finished blocker stops blocking
   });
+  it("refuses to start a task whose blockers are unfinished, and names them", async () => {
+    const store = new TaskStore();
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "first", description: "" });
+    await run(pi, "TaskCreate", { subject: "second", description: "" });
+    await run(pi, "TaskUpdate", { task_id: "2", addBlockedBy: ["1"] });
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" }))).toContain("#2 is blocked by #1");
+    expect(store.get("2")?.status).toBe("pending");                     // refused, nothing changed
+    await run(pi, "TaskUpdate", { task_id: "1", status: "completed" }); // finish the blocker
+    // The transition also proves the status is snapshotted before the update: a memory-only
+    // store mutates the live object, so reading it afterwards always saw "no change".
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "2", status: "in_progress" }))).toContain("Updated #2 (pending → in_progress)");
+    expect(store.get("2")?.status).toBe("in_progress");
+  });
   it("accepts metadata on update, including a null value that deletes the key", async () => {
     const store = new TaskStore();
     const pi = fakePi();

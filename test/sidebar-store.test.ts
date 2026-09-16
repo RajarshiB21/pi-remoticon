@@ -62,4 +62,22 @@ describe("sidebar store", () => {
     const store = new TaskStore(file);
     expect(store.list()).toHaveLength(0);               // the workspace file was never read
   });
+  it("does not clobber tasks another session persisted before seeding", () => {
+    const file = join(dir, "tasks-race.json");
+    const stale = new TaskStore(file);                  // sees an empty file
+    const other = new TaskStore(file);
+    other.create("from the other session", "");
+    stale.seed({ nextId: 10, tasks: [{ id: "9", subject: "seeded", description: "", status: "pending",
+      metadata: {}, blocks: [], blockedBy: [], createdAt: 0, updatedAt: 0 }] });
+    // The emptiness check now runs after load(), under the lock, so the other session survives.
+    expect(new TaskStore(file).list().map(t => t.subject)).toEqual(["from the other session"]);
+  });
+  it("does not delete a file another session filled while this one was empty", () => {
+    const file = join(dir, "tasks-del.json");
+    const empty = new TaskStore(file);                  // sees no file
+    const other = new TaskStore(file);
+    other.create("kept", "");
+    expect(empty.deleteFileIfEmpty()).toBe(false);
+    expect(existsSync(file)).toBe(true);
+  });
 });

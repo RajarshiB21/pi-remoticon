@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { sessionTaskFile } from "../lib/sidebar/tasks/paths.js";
 import type { Task } from "../lib/sidebar/tasks/types.js";
 
@@ -15,14 +15,20 @@ type FakeHandler = (event: unknown, ctx: unknown) => unknown;
 function fakePi() {
   const commands = new Map<string, FakeCommand>();
   const handlers = new Map<string, FakeHandler>();
+  const tools = new Map<string, ToolDefinition>();
   return {
     commands,
     handlers,
+    tools,
     on: (name: string, fn: FakeHandler) => { handlers.set(name, fn); },
     registerCommand: (name: string, def: FakeCommand) => { commands.set(name, def); },
-    registerTool: () => {},
-  } as unknown as ExtensionAPI & { commands: Map<string, FakeCommand>; handlers: Map<string, FakeHandler> };
+    registerTool: (def: ToolDefinition) => { tools.set(def.name, def); },
+  } as unknown as ExtensionAPI & {
+    commands: Map<string, FakeCommand>; handlers: Map<string, FakeHandler>; tools: Map<string, ToolDefinition>;
+  };
 }
+const runTool = async (pi: ReturnType<typeof fakePi>, name: string, args: Record<string, unknown>) =>
+  (pi.tools.get(name) as ToolDefinition).execute("id", args as never, undefined, undefined, {} as ExtensionContext);
 const ctx = (notifies: string[]) => ({
   mode: "print",
   cwd: process.cwd(),
@@ -55,6 +61,23 @@ const sessionCtx = (notifies: string[]) => ({
   isProjectTrusted: () => true,
   sessionManager: { getSessionFile: () => join(cwd, "session.jsonl"), getSessionId: () => sessionId },
   ui: { notify: (m: string) => notifies.push(m), custom: () => new Promise(() => {}) },
+} as unknown as ExtensionContext);
+
+type Overlay = { render(width: number): string[]; invalidate(): void };
+/** A session whose overlay factory actually runs, so the component can be rendered by hand. */
+const sessionCtxWithOverlay = (notifies: string[], theme: unknown, capture: (c: Overlay) => void) => ({
+  mode: "tui",
+  cwd,
+  isProjectTrusted: () => true,
+  sessionManager: { getSessionFile: () => join(cwd, "session.jsonl"), getSessionId: () => sessionId },
+  ui: {
+    notify: (m: string) => notifies.push(m),
+    theme,
+    custom: (factory: (tui: unknown) => Overlay) => {
+      capture(factory({ requestRender: () => {}, terminal: { rows: 30 } }));
+      return new Promise(() => {});
+    },
+  },
 } as unknown as ExtensionContext);
 
 describe("/sidebar command", () => {
@@ -125,5 +148,29 @@ describe("session_start restore and startup clear", () => {
     const notifies: string[] = [];
     await pi.handlers.get("session_start")!({ reason: "startup" }, sessionCtx(notifies));
     expect(notifies.filter(n => n.includes("invalid sidebar config"))).toHaveLength(1);
+  });
+});
+
+describe("theme role fallback", () => {
+  it("reports an unknown role once, not on every repaint", async () => {
+    // Regression: the painter was rebuilt inside render(), so each frame started with an empty
+    // "already warned" set and the toast repeated on every repaint — about 6.7 times a second
+    // while the spinner runs.
+    const pi = fakePi();
+    factory(pi);
+    const notifies: string[] = [];
+    const theme = {
+      fg: (role: string, t: string) => { if (role === "customMessageLabel") throw new Error("unknown role"); return t; },
+      bold: (t: string) => t,
+    };
+    let overlay: Overlay | undefined;
+    await pi.handlers.get("session_start")!({ reason: "startup" }, sessionCtxWithOverlay(notifies, theme, c => { overlay = c; }));
+    await runTool(pi, "TaskCreate", { subject: "a", description: "" });
+    await runTool(pi, "TaskUpdate", { task_id: "1", status: "in_progress" });   // a row that uses the missing role
+    overlay!.render(44);
+    overlay!.render(44);
+    overlay!.render(44);
+    expect(notifies.filter(n => n.includes("Theme has no"))).toHaveLength(1);
+    pi.handlers.get("session_shutdown")!({}, {});                                // stop the spinner clock
   });
 });

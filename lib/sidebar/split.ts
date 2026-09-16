@@ -195,19 +195,16 @@ export function createSplitController(options: SplitControllerOptions = {}): Spl
       if (disposed) throw new Error("Cannot rebuild a disposed split pane");
       const next = clampWidth(width);
       if (next === sidebarWidth) return;
-      const wasEnabled = enabled;
-      if (wasEnabled) {
-        restoreRegularRenderAdapter();
-        restoreFullscreenLayoutAdapter();
-        enabled = false;
-      }
+      // Take the adapters down and put them back at the new width regardless of `enabled`: while
+      // hidden the reserved column is still installed, and a stale split root would reserve the
+      // OLD width when the overlay is shown again — painting over main content if it grew.
+      // `enabled` is preserved, so a hidden column stays hidden through the rebuild.
+      restoreRegularRenderAdapter();
+      restoreFullscreenLayoutAdapter();
       sidebarWidth = next;
       overlayOptions.width = sidebarWidth;            // overlayOptions is the mutable object the overlay reads
-      if (wasEnabled) {
-        enabled = true;
-        syncRegularRenderAdapter();
-        syncFullscreenLayoutAdapter();
-      }
+      syncRegularRenderAdapter();
+      syncFullscreenLayoutAdapter();
       tui?.requestRender();
     },
     dispose() {
