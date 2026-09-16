@@ -79,4 +79,18 @@ describe("auto-clear", () => {
     expect(ac.onTurnStart(99)).toBe(false);
     expect(store.list()).toHaveLength(1);
   });
+  it("still retires the finished rows when a row was abandoned on the previous run", () => {
+    const store = new TaskStore();
+    const done = store.create("finished", "");
+    store.update(done.id, { status: "completed" });
+    store.create("abandoned", "");                        // left pending across the run boundary
+    const ac = new AutoClearManager(() => store, () => "on_list_complete", 4);
+    ac.trackCompletion(done.id, 1);
+    ac.onRunEnded();
+    ac.startNewBatch();                                    // the next batch's first create
+    // The finished row goes. The unfinished one is not auto-clear's to delete: one abandoned
+    // row used to hold the gate shut forever, so the next batch was appended to rows the user
+    // had already watched finish and nothing ever retired them.
+    expect(store.list().map(t => t.subject)).toEqual(["abandoned"]);
+  });
 });

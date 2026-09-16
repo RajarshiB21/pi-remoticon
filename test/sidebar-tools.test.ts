@@ -134,4 +134,31 @@ describe("sidebar tools", () => {
     await run(pi, "TaskUpdate", { task_id: "1", metadata: { file: null } });
     expect(store.get("1")?.metadata).toEqual({});
   });
+  it("removes a task when asked, instead of reporting it missing", async () => {
+    const store = new TaskStore();
+    let changes = 0;
+    const pi = fakePi();
+    registerTaskTools(pi, () => store, () => { changes += 1; },
+      { beforeCreate: () => {}, afterUpdate: () => {} });
+    const textOf = (r: Awaited<ReturnType<typeof run>>) => (r.content[0] as { text: string }).text;
+    await run(pi, "TaskCreate", { subject: "abandoned row", description: "" });
+    const beforeDelete = changes;
+    // The store has always supported this; the tool never exposed it, so a row the agent no
+    // longer wanted had no way off the user's list and the description's "no longer needed"
+    // path was unreachable.
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "1", status: "deleted" }))).toBe("Deleted #1");
+    expect(store.get("1")).toBeUndefined();
+    expect(changes).toBe(beforeDelete + 1);          // without the repaint the row stays on screen
+    expect(textOf(await run(pi, "TaskUpdate", { task_id: "1", status: "deleted" }))).toContain("#1 not found");
+  });
+  it("offers `deleted` on TaskUpdate only, never as a TaskList filter", () => {
+    const pi = fakePi();
+    registerTaskTools(pi, () => new TaskStore(), () => {}, { beforeCreate: () => {}, afterUpdate: () => {} });
+    const enumOf = (name: string) => {
+      const def = pi.tools.get(name) as unknown as { parameters: { properties: { status: { enum: string[] } } } };
+      return def.parameters.properties.status.enum;
+    };
+    expect(enumOf("TaskList")).toEqual(["pending", "in_progress", "completed"]);
+    expect(enumOf("TaskUpdate")).toEqual(["pending", "in_progress", "completed", "deleted"]);
+  });
 });

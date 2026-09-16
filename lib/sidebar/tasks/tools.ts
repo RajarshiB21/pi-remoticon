@@ -19,6 +19,11 @@ export const TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskList", "TaskGet", "Ta
  *  parameter, because TaskList and TaskUpdate both take a status and mean different things. */
 const statusUnion = (description: string) =>
   Type.Unsafe<"pending" | "in_progress" | "completed">({ type: "string", enum: ["pending", "in_progress", "completed"], description });
+/** `TaskUpdate` accepts one value `TaskList` must not: `deleted`, which removes the task. The store
+ *  has always taken it (see its `update` signature); keeping it out of the shared union stops
+ *  `TaskList({status:"deleted"})` becoming a legal call that can only ever answer "No tasks". */
+const updateStatusUnion = (description: string) =>
+  Type.Unsafe<"pending" | "in_progress" | "completed" | "deleted">({ type: "string", enum: ["pending", "in_progress", "completed", "deleted"], description });
 
 const cleanOptional = (v?: string) => v?.trim().replace(/\s+/g, " ") || undefined;
 const textResult = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
@@ -39,8 +44,13 @@ const openBlockersAmong = (store: TaskStore, ids: readonly string[]): string[] =
 const openBlockersOf = (store: TaskStore, task: Task): string[] => openBlockersAmong(store, task.blockedBy);
 
 const CREATE_DESCRIPTION = [
-  "Use this tool to create a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.",
+  "Use this tool to create a structured task list for your current coding session. This helps you track progress and organize complex tasks.",
   "It also helps the user understand the progress of the task and overall progress of their requests.",
+  "",
+  "## What Counts as a Task",
+  "",
+  "A task is a piece of the user's deliverable: something they would recognize as work on their own project.",
+  "Waiting on a person, a bot, a review or a CI run is not a task, and neither is reading a report; those belong in your reply instead. Every unfinished task is visible to the user for as long as it stays unfinished, so a row that is not their deliverable is noise shown as work outstanding.",
   "",
   "## When to Use This Tool",
   "",
@@ -51,9 +61,9 @@ const CREATE_DESCRIPTION = [
   "- Plan mode - When using plan mode, create a task list to track the work",
   "- User explicitly requests todo list - When the user directly asks you to use the todo list",
   "- User provides multiple tasks - When users provide a list of things to be done (numbered or comma-separated). Create them all in one response with one TaskCreate call per task",
-  "- After receiving new instructions - Immediately capture user requirements as tasks",
   "- When you start working on a task - Mark it as in_progress BEFORE beginning work",
-  "- After completing a task - Mark it as completed and add any new follow-up tasks discovered during implementation",
+  "- After completing a task - Mark it as completed in the same turn, so the list on screen matches reality",
+  "- When a task turns out not to be needed - remove it with TaskUpdate `status: \"deleted\"`, rather than leaving it on the list",
   "",
   "## When NOT to Use This Tool",
   "",
@@ -148,8 +158,7 @@ const UPDATE_DESCRIPTION = [
   "- IMPORTANT: Always mark your assigned tasks as resolved when you finish them",
   "- After resolving, call TaskList to find your next task",
   "- ONLY mark a task as completed when you have FULLY accomplished it",
-  "- If you encounter errors, blockers, or cannot finish, keep the task as in_progress",
-  "- When blocked, create a new task describing what needs to be resolved",
+  "- If you cannot finish a task, leave its status alone and say what stopped it in your reply. Do not mark it completed, and do not leave it in_progress when nobody is working on it",
   "- Never mark a task as completed if:",
   "  - Tests are failing",
   "  - Implementation is partial",
@@ -173,7 +182,9 @@ const UPDATE_DESCRIPTION = [
   "",
   "## Status Workflow",
   "",
-  "Status progresses: `pending` → `in_progress` → `completed`",
+  "Status progresses: `pending` → `in_progress` → `completed`.",
+  "",
+  "`deleted` is not a step in that progression: it removes the task. Use it for a task that is no longer needed or has been superseded, so it stops showing on the user's list.",
   "",
   "## Staleness",
   "",
@@ -208,7 +219,7 @@ const TaskCreateParams = Type.Object({
 });
 const TaskUpdateParams = Type.Object({
   task_id: Type.String({ description: "Task id to update" }),
-  status: Type.Optional(statusUnion("New status for the task")),
+  status: Type.Optional(updateStatusUnion("New status for the task, or `deleted` to remove it")),
   subject: Type.Optional(Type.String()),
   description: Type.Optional(Type.String()),
   activeForm: Type.Optional(Type.String()),
@@ -290,8 +301,17 @@ export function registerTaskTools(pi: ExtensionAPI, getStore: () => TaskStore, o
       // `current` and `result.task` are the same object and the transition would never show.
       const previousStatus = current.status;
       const result = store.update(args.task_id, args);
-      if (!result.task) return textResult(`Error: #${args.task_id} not found`);
-      hooks.afterUpdate(args.task_id, { status: args.status });
+      if (!result.task) {
+        // A delete removes the task, so its result is `task: undefined` — the same shape as a
+        // missing id, and `changedFields` is the only thing that tells them apart. Without this
+        // branch the only way to retire a row reported a false error, skipped the hook and
+        // skipped `onChange()`, so the panel kept drawing a row the store had already dropped.
+        if (!result.changedFields.includes("deleted")) return textResult(`Error: #${args.task_id} not found`);
+        hooks.afterUpdate(args.task_id, {});
+        onChange();
+        return textResult(`Deleted #${args.task_id}`);
+      }
+      hooks.afterUpdate(args.task_id, { status: args.status === "deleted" ? undefined : args.status });
       onChange();
       const transition = previousStatus === result.task.status ? "" : ` (${previousStatus} → ${result.task.status})`;
       const warnings = result.warnings.length ? `\nWarnings: ${result.warnings.join("; ")}` : "";

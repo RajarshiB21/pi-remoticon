@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { sessionTaskFile } from "../lib/sidebar/tasks/paths.js";
+import { TaskStore } from "../lib/sidebar/tasks/store.js";
 import type { Task } from "../lib/sidebar/tasks/types.js";
 
 // The factory is imported for side effects; the command and the startup rules are
@@ -94,6 +95,18 @@ describe("/sidebar command", () => {
     expect(notifies.join()).toContain("36");
     await sidebar.handler("bogus", ctx(notifies));           // unknown argument warns
     expect(notifies.join()).toContain("Usage");
+  });
+  it("clears the task list on request, and reports what it removed", async () => {
+    seed([mkTask("1", "pending"), mkTask("2", "completed")]);
+    const pi = fakePi();
+    factory(pi);
+    const notifies: string[] = [];
+    await pi.handlers.get("session_start")!({ reason: "startup" }, sessionCtx(notifies));
+    expect(new TaskStore(file).list()).toHaveLength(2);      // seeded and restored first
+    await pi.commands.get("sidebar")!.handler("clear", ctx(notifies));
+    expect(notifies.join()).toContain("Cleared 2");
+    expect(new TaskStore(file).list()).toEqual([]);          // the user's only way to drop a stray row
+    expect(existsSync(file)).toBe(false);                    // and the emptied file is reclaimed
   });
   it("says a project override is active on the on/off and width toasts too", async () => {
     mkdirSync(join(cwd, ".pi"), { recursive: true });

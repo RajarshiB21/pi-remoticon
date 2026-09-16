@@ -175,7 +175,7 @@ export default function (pi: ExtensionAPI): void {
   }
 
   pi.registerCommand("sidebar", {
-    description: "Show, hide or resize the Remoticon sidebar",
+    description: "Show, hide, resize or clear the Remoticon sidebar",
     handler: async (args, ctx) => {
       const [a, b] = args.trim().split(/\s+/).filter(Boolean);
       const override = projectOverride ? " \u00B7 project override active" : "";
@@ -200,12 +200,24 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify(`Sidebar width ${w}${override}`, "info");
         return;
       }
+      if (a === "clear") {
+        // The user's own escape hatch. Auto-clear never deletes an unfinished row, and the agent
+        // cannot be relied on to retire one it abandoned, so without this the only way to get a
+        // stray row off the screen is hiding the whole sidebar.
+        const cleared = store.clearAll();
+        changed();
+        if (store.list().length === 0) { store.deleteFileIfEmpty(); reclaimSessionTasksDir(agentDir, ctx.cwd); }
+        ctx.ui.notify(cleared === 0
+          ? `Task list already empty${override}`
+          : `Cleared ${cleared} task${cleared === 1 ? "" : "s"}${override}`, "info");
+        return;
+      }
       if (a === undefined) {
         const slotIds = (slots.length ? slots.map(s => s.id) : cfg.slots.map(s => s.id)).join(", ");
         ctx.ui.notify(`sidebar ${cfg.sidebar.on ? "on" : "off"} \u00B7 width ${cfg.sidebar.width} \u00B7 slots ${slotIds}${override}`, "info");
         return;
       }
-      ctx.ui.notify("Usage: /sidebar [on|off|width <28..60>]", "warning");
+      ctx.ui.notify("Usage: /sidebar [on|off|clear|width <28..60>]", "warning");
     },
   });
 }

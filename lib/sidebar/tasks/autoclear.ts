@@ -74,24 +74,26 @@ export class AutoClearManager {
   }
 
   /** A task is about to be created. If a run has ended since this list was last added
-   * to and there is nothing left to do on it, the list belongs to the batch before
-   * this one — retire it, so the new task starts on a clean list instead of being
-   * appended to rows the user already saw finished.
+   * to, the rows it finished belong to the batch before this one — retire those, so the
+   * new task starts on a clean list instead of being appended to rows the user already
+   * saw finished.
    *
-   * Left alone otherwise: a list with unfinished work in it, and a list the agent is
-   * still building inside the same run (create, complete, create again), which would
-   * otherwise lose every step as soon as the next one was added. */
+   * This used to require EVERY row to be completed first, which one abandoned row held
+   * shut forever: the next batch was appended to rows the user had already watched
+   * finish and nothing ever retired them. Rows still unfinished are deliberately left
+   * alone — auto-clear never deletes work in progress. `/sidebar clear` is how a row the
+   * agent abandoned is removed.
+   *
+   * Left alone otherwise: a list the agent is still building inside the same run
+   * (create, complete, create again), which would otherwise lose every step as soon as
+   * the next one was added. */
   startNewBatch(): void {
     this.allCompletedAtTurn = null;
     const afterFinishedRun = this.runEnded;
     this.runEnded = false;
-    // Cheap-first: list() re-reads the file on a file-backed store.
     if (!afterFinishedRun || this.getMode() === "never") return;
-    const tasks = this.getStore().list();
-    if (tasks.length > 0 && tasks.every(t => t.status === "completed")) {
-      this.getStore().clearCompleted();
-      this.completedAtTurn.clear();
-    }
+    this.getStore().clearCompleted();
+    this.completedAtTurn.clear();
   }
 
   /** Reset all tracking state (e.g., on new session). */
