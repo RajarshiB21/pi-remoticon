@@ -10,7 +10,7 @@
  */
 
 import { matchesDistress } from "../distress/hailmary.js";
-import { latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
+import { humanMessageOccurrences, latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
 
 /** Turns without a fetch before the reminder is considered due. */
 export const REMINDER_AFTER_TURNS = 3;
@@ -46,12 +46,15 @@ export interface ReminderState {
 	lastFetchTurn: number | null;
 	/** The latest human ask seen on the previous call, or null. */
 	lastSeenAsk: string | null;
+	/** How many unwrapped human messages carried lastSeenAsk on the
+	 * previous call: a new ask with the same wording adds an occurrence. */
+	lastSeenOccurrences: number;
 	/** True once the current ask already received its reminder. */
 	injectedThisAsk: boolean;
 }
 
 export function createReminderState(): ReminderState {
-	return { turn: 0, lastFetchTurn: null, lastSeenAsk: null, injectedThisAsk: false };
+	return { turn: 0, lastFetchTurn: null, lastSeenAsk: null, lastSeenOccurrences: 0, injectedThisAsk: false };
 }
 
 export function reminderOnTurnStart(state: ReminderState): void {
@@ -74,7 +77,8 @@ export function reminderOnToolResult(state: ReminderState, toolName: string): vo
  * and its returned messages do not persist into session history (verified
  * against the installed harness), so the only workable dedup is state: the
  * ask is remembered, the reminder fires once per ask, and a different
- * latest ask or a recorded fetch re-arms it. */
+ * latest ask, a recorded fetch, or the same wording arriving as a new
+ * message re-arms it. */
 export function researchReminderInjection(
 	state: ReminderState,
 	messages: readonly HumanMessageLike[],
@@ -85,8 +89,10 @@ export function researchReminderInjection(
 	if (latest === null) return null;
 	const text = messageText(latest);
 	if (text === null || matchesDistress(text)) return null;
-	if (state.lastSeenAsk !== text) {
+	const occurrences = humanMessageOccurrences(messages, text);
+	if (state.lastSeenAsk !== text || state.lastSeenOccurrences !== occurrences) {
 		state.lastSeenAsk = text;
+		state.lastSeenOccurrences = occurrences;
 		state.injectedThisAsk = false;
 	}
 	if (!matchesCurrentInfo(text)) return null;

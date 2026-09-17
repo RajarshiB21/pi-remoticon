@@ -80,6 +80,15 @@ describe("researchReminderInjection", () => {
     for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
     expect(researchReminderInjection(state, ask)).not.toBeNull();
   });
+  it("re-arms for an identical ask that arrives as a new message without a fetch", () => {
+    const state = createReminderState();
+    for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
+    const ask = [user("what's the latest state of x")];
+    expect(researchReminderInjection(state, ask)).not.toBeNull();
+    for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
+    const repeated = [...ask, injected(RESEARCH_REMINDER_TEXT), user("what's the latest state of x")];
+    expect(researchReminderInjection(state, repeated)).not.toBeNull();
+  });
   it("fires again on a fresh keyword ask after the fetch budget resets", () => {
     const state = createReminderState();
     for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);

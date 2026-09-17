@@ -54,4 +54,11 @@ describe("distressInjection", () => {
     expect(distressInjection(state, [user("continue")])).toBeNull();
     expect(distressInjection(state, [user("i am in distress")])).not.toBeNull();
   });
+  it("re-arms when the exact same phrase arrives as a new message with nothing in between", () => {
+    const state = createDistressState();
+    const first = [user("i am in distress")];
+    expect(distressInjection(state, first)).not.toBeNull();
+    const repeated = [...first, injected(HAIL_MARY_TEXT), user("i am in distress")];
+    expect(distressInjection(state, repeated)).not.toBeNull();
+  });
 });

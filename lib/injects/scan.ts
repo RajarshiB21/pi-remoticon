@@ -50,6 +50,19 @@ export function latestHumanMessage(messages: readonly HumanMessageLike[]): Human
 	return null;
 }
 
+/** How many unwrapped human messages in `messages` carry exactly `text`.
+ * Message objects are not guaranteed stable across context calls, but the
+ * occurrence count is: a new ask with the same wording adds an occurrence,
+ * while repeated calls on the same ask keep the count flat. */
+export function humanMessageOccurrences(messages: readonly HumanMessageLike[], text: string): number {
+	let count = 0;
+	for (const message of messages) {
+		if (message.role !== "user" || isReminderWrapped(message)) continue;
+		if (messageText(message) === text) count++;
+	}
+	return count;
+}
+
 /** The user-role message shape the injection extensions append: the text
  * wrapped in a single text block, timestamped now. */
 export function injectedMessage(text: string): { role: "user"; content: Array<{ type: "text"; text: string }>; timestamp: number } {

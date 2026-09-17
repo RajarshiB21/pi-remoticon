@@ -8,7 +8,7 @@
  * stays in the workspace's own files.
  */
 
-import { latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
+import { humanMessageOccurrences, latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
 
 export const TRIGGER_PHRASES: readonly string[] = ["i am in distress", "i'm in distress"];
 
@@ -21,12 +21,15 @@ export const HAIL_MARY_TEXT = [
 export interface DistressState {
 	/** The latest human ask seen on the previous call, or null. */
 	lastSeenAsk: string | null;
+	/** How many unwrapped human messages carried lastSeenAsk on the
+	 * previous call: a new ask with the same wording adds an occurrence. */
+	lastSeenOccurrences: number;
 	/** True once the current ask already received its hail mary. */
 	injectedThisAsk: boolean;
 }
 
 export function createDistressState(): DistressState {
-	return { lastSeenAsk: null, injectedThisAsk: false };
+	return { lastSeenAsk: null, lastSeenOccurrences: 0, injectedThisAsk: false };
 }
 
 export function matchesDistress(text: string | null): boolean {
@@ -41,17 +44,19 @@ export function matchesDistress(text: string | null): boolean {
  * one. The context hook fires before every model call of a turn, and a
  * context handler's returned messages do not persist into session history
  * (verified against the installed harness), so the only workable dedup is
- * state: the ask is remembered, the hail mary fires once per ask, and any
- * different latest ask — including the same phrase repeated in a later
- * exchange — re-arms it.
+ * state: the ask is remembered, the hail mary fires once per ask, and a
+ * different latest ask — including the same phrase repeated as a new
+ * message in a later exchange — re-arms it.
  */
 export function distressInjection(state: DistressState, messages: readonly HumanMessageLike[]): string | null {
 	const latest = latestHumanMessage(messages);
 	if (latest === null) return null;
 	const text = messageText(latest);
 	if (text === null) return null;
-	if (state.lastSeenAsk !== text) {
+	const occurrences = humanMessageOccurrences(messages, text);
+	if (state.lastSeenAsk !== text || state.lastSeenOccurrences !== occurrences) {
 		state.lastSeenAsk = text;
+		state.lastSeenOccurrences = occurrences;
 		state.injectedThisAsk = false;
 	}
 	if (!matchesDistress(text)) return null;
