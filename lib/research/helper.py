@@ -46,11 +46,10 @@ query:
   returns full results in one request.
 - bing.com/search and the duckduckgo.com search pages -> Dynamic
   browser (one-attempt clears measured).
-Retired surfaces, refused at validation before any transport attempt,
-each receipt naming the working surface:
-- old.reddit.com (requires a login).
-- html.duckduckgo.com (serves a challenge shell; its wording joined the
-  block-detection needles).
+Retired surfaces, refused at validation before any transport attempt;
+each receipt names the working surface and lives once, in ROUTE_TABLE:
+- old.reddit.com
+- html.duckduckgo.com
 Dynamic is registered unconditionally now (lazy, so it still launches
 only when a route or captureXhr uses it). DuckDuckGo-style challenge
 shells are blocked instead of read as usable content: a 202 with the
