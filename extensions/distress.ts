@@ -6,11 +6,12 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { injectedMessage } from "../lib/injects/scan.js";
-import { distressInjection } from "../lib/distress/hailmary.js";
+import { createDistressState, distressInjection } from "../lib/distress/hailmary.js";
 
 export default function (pi: ExtensionAPI): void {
+	const state = createDistressState();
 	pi.on("context", (event) => {
-		const injection = distressInjection(event.messages);
+		const injection = distressInjection(state, event.messages);
 		if (injection === null) return {};
 		return {
 			messages: [...event.messages, injectedMessage(injection)],

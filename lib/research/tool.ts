@@ -63,15 +63,17 @@ const R3_SNIPPET =
  * flipped the first fetch action from a stale-memory reddit guess to the
  * concurrent search batch). Search-first on the named surfaces, one
  * concurrent batch, then evidence-driven plain fetches. The previous
- * recovery-only guidance is backed up in guidelines.backup.ts: it taught
- * no search step at all, and taught captureXhr on Reddit threads, the
- * route the hardcodes retire. Retired surfaces (old.reddit.com,
- * html.duckduckgo.com) are refused by the helper before any transport, so
- * this guidance no longer teaches around them. Every bullet names fetch
- * (RV-7 discipline).
+ * recovery-only guidance lives in git history (the pre-branch tool.ts): it
+ * taught no search step at all, and taught captureXhr on Reddit threads,
+ * the route the hardcodes retire. The Bash/curl ban and the untrusted-
+ * output rule are kept from the old guidance. Retired surfaces
+ * (old.reddit.com, html.duckduckgo.com) are refused by the helper before
+ * any transport, so this guidance no longer teaches around them. Every
+ * bullet names fetch (RV-7 discipline).
  */
 const RESEARCH_GUIDELINES = [
 	"Fetch is the research surface: when a question needs current-world information (a fact that changes, anything latest, recent, dated, or past your training cutoff), form the actual question, then make the first fetch call one concurrent search batch, never targets planned from memory.",
+	"Use fetch rather than Bash, curl, PowerShell, or another network command to retrieve public web evidence.",
 	"The search batch is one fetch call with up to three engine targets for the same query: https://www.google.com/search?q=<query>, https://www.bing.com/search?q=<query>, and https://duckduckgo.com/?q=<query>. A blocked engine costs one target slot, not the batch; the engines that answered carry it.",
 	"Read what the search batch returned, then fetch two to four result URLs plainly in one batch. Every later target traces to something a fetch returned; follow trails from evidence.",
 	"Reddit: search on https://www.reddit.com/search first, then fetch the threads plainly. A plain fetch carries the comments.",

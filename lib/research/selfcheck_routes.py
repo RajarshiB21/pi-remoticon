@@ -25,7 +25,7 @@ def check(name: str, actual, expected) -> None:
 
 
 class FakeResponse:
-    """_block_check reads response.status and response.body only."""
+    """_block_check reads response.status, response.body and the target url."""
 
     def __init__(self, status, body: bytes):
         self.status = status
@@ -59,13 +59,15 @@ def main() -> None:
     # Detection needles: DuckDuckGo-style challenge shells read as blocked,
     # not usable (measured 2026-09-14: status 202, ~13.9KB, the wording in
     # the head). A 202 with a short body is the same anomaly without the
-    # branding. A real 202 Accepted with a long body is not a block, and
+    # branding, scoped to routed engines so an ordinary host's short 202
+    # stays usable. A real 202 Accepted with a long body is not a block, and
     # neither is a 200 that merely mentions the wording.
     ddg_wording = b"Please complete the following challenge to confirm this search was made by a human"
     padded = b"x" * 10_000 + ddg_wording
     check("202 plus the DDG wording is blocked", ResearchSpider._block_check(None, FakeResponse(202, ddg_wording + b" more shell")), (True, "search challenge shell"))
     check("202 plus the DDG wording past the short cap is blocked", ResearchSpider._block_check(None, FakeResponse(202, padded)), (True, "search challenge shell"))
-    check("202 with a short body is blocked", ResearchSpider._block_check(None, FakeResponse(202, b"queued for processing")), (True, "202 challenge shell"))
+    check("202 with a short body is blocked on a routed engine", ResearchSpider._block_check(None, FakeResponse(202, b"queued for processing"), "https://duckduckgo.com/?q=x"), (True, "202 challenge shell"))
+    check("202 with a short body on an ordinary host stays usable", ResearchSpider._block_check(None, FakeResponse(202, b"queued for processing"), "https://example.com/page"), (False, None))
     check("202 with a long body without the wording stays usable", ResearchSpider._block_check(None, FakeResponse(202, b"x" * 10_000)), (False, None))
     check("200 mentioning the wording stays usable", ResearchSpider._block_check(None, FakeResponse(200, ddg_wording)), (False, None))
     check("a 429 still reports its status", ResearchSpider._block_check(None, FakeResponse(429, b"sorry")), (True, "status 429"))

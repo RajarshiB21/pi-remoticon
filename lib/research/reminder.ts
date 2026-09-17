@@ -10,17 +10,17 @@
  */
 
 import { matchesDistress } from "../distress/hailmary.js";
-import { injectedAfter, latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
+import { latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
 
 /** Turns without a fetch before the reminder is considered due. */
 export const REMINDER_AFTER_TURNS = 3;
 
+/** World-asking words only. "search" is excluded on purpose: it fires on
+ * local asks like "search the repo for the failing test", and years rot. */
 export const CURRENT_INFO_KEYWORDS: readonly string[] = [
 	"latest",
 	"news",
-	"search",
-	"2026",
-	"2027",
+	"dated",
 ];
 
 export const RESEARCH_REMINDER_TEXT = [
@@ -29,18 +29,17 @@ export const RESEARCH_REMINDER_TEXT = [
 	"</system-reminder>",
 ].join("\n");
 
-/** Marker inside the injected text, so a repeat fire for the same ask is
- * detected without stacking. */
-const INJECTION_MARKER = "research flow now: one fetch call";
-
-/** Turn counter and last fetch turn, owned by the extension wiring. */
+/** Turn counter, last fetch turn, and the ask already reminded for,
+ * owned by the extension wiring. */
 export interface ReminderState {
 	turn: number;
 	lastFetchTurn: number | null;
+	/** The human ask this exchange already injected for, or null. */
+	lastInjectedAsk: string | null;
 }
 
 export function createReminderState(): ReminderState {
-	return { turn: 0, lastFetchTurn: null };
+	return { turn: 0, lastFetchTurn: null, lastInjectedAsk: null };
 }
 
 export function reminderOnTurnStart(state: ReminderState): void {
@@ -53,8 +52,11 @@ export function reminderOnToolResult(state: ReminderState, toolName: string): vo
 
 /** The reminder to append on this model call, or null. Null while a fetch
  * ran within the last few turns (three to start), when the latest human
- * message carries no current-info keyword, or when this ask already carries
- * one (the hook fires before every model call; it must not stack). */
+ * message carries no current-world keyword, or when this ask already
+ * received one. The context hook fires before every model call of a turn,
+ * and its returned messages do not persist into session history (verified
+ * against the installed harness), so the only workable dedup is state: the
+ * ask text fired for is remembered, a new ask re-arms. */
 export function researchReminderInjection(
 	state: ReminderState,
 	messages: readonly HumanMessageLike[],
@@ -67,6 +69,7 @@ export function researchReminderInjection(
 	if (text === null || matchesDistress(text)) return null;
 	const lowered = text.toLowerCase();
 	if (!CURRENT_INFO_KEYWORDS.some((keyword) => lowered.includes(keyword))) return null;
-	if (injectedAfter(messages, INJECTION_MARKER)) return null;
+	if (state.lastInjectedAsk === text) return null;
+	state.lastInjectedAsk = text;
 	return RESEARCH_REMINDER_TEXT;
 }

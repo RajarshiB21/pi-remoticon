@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distressInjection, matchesDistress } from "../lib/distress/hailmary.js";
+import { createDistressState, distressInjection, matchesDistress } from "../lib/distress/hailmary.js";
 
 const user = (text: string) => ({ role: "user", content: text });
 /** The exact shape extensions/distress.ts appends (the lib text carries its own tags). */
@@ -22,24 +22,27 @@ describe("matchesDistress", () => {
 
 describe("distressInjection", () => {
   it("returns the hail mary when the latest human message states distress", () => {
-    const injection = distressInjection([user("what's the latest on x"), user("i am in distress, just give me the answer")]);
+    const injection = distressInjection(createDistressState(), [user("what's the latest on x"), user("i am in distress, just give me the answer")]);
     expect(injection).toContain("stop the current work now");
     expect(injection).toContain("never ask whether to continue");
     expect(injection).toContain("<system-reminder>");
   });
   it("stays silent without a matching ask", () => {
-    expect(distressInjection([user("continue with the refactor")])).toBeNull();
-    expect(distressInjection([toolResult("tool output"), injected("something else")])).toBeNull();
+    const state = createDistressState();
+    expect(distressInjection(state, [user("continue with the refactor")])).toBeNull();
+    expect(distressInjection(state, [toolResult("tool output"), injected("something else")])).toBeNull();
   });
-  it("does not stack on repeated model calls for the same ask", () => {
+  it("fires once per ask and never stacks on repeated model calls", () => {
+    const state = createDistressState();
     const ask = user("i am in distress");
-    const first = distressInjection([ask]);
-    expect(first).not.toBeNull();
-    const secondCallList = [ask, injected(first as string), toolResult("kept working")];
-    expect(distressInjection(secondCallList)).toBeNull();
+    expect(distressInjection(state, [ask])).not.toBeNull();
+    expect(distressInjection(state, [ask, injected("the hail mary"), toolResult("kept working")])).toBeNull();
+    expect(distressInjection(state, [ask])).toBeNull();
   });
-  it("stays silent once the owner's next message ends the exchange", () => {
-    const resolved = [user("i am in distress"), injected("the hail mary"), user("ok continue with the plan")];
-    expect(distressInjection(resolved)).toBeNull();
+  it("ends when the owner's next message arrives, and a fresh ask fires again", () => {
+    const state = createDistressState();
+    expect(distressInjection(state, [user("i am in distress")])).not.toBeNull();
+    expect(distressInjection(state, [user("ok continue with the plan")])).toBeNull();
+    expect(distressInjection(state, [user("i am in distress again")])).not.toBeNull();
   });
 });

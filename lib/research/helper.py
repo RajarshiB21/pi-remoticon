@@ -659,7 +659,7 @@ class ResearchSpider(Spider):
         used_browser = bool(tiers & {"stealth", "dynamic"})
         return used_stealth, used_browser, len(self._blocked_domains) if used_browser else 0
 
-    def _block_check(self, response) -> tuple[bool, str | None]:
+    def _block_check(self, response, url: str = "") -> tuple[bool, str | None]:
         if response.status in EXTENDED_BLOCKED_CODES:
             return True, f"status {response.status}"
         try:
@@ -675,12 +675,12 @@ class ResearchSpider(Spider):
         # read as usable content, so the ladder never ran on it. The wording
         # itself is the needle and stays uncapped: a search engine's challenge
         # shell is not research content however large the shell is. A plain
-        # 202 with a short body is the same anomaly without the branding; a
-        # real 202 Accepted escalates honestly instead of answering with a
-        # shell.
+        # 202 with a short body is the same anomaly without the branding, but
+        # only on a routed search engine: on an ordinary host a short 202 is
+        # a real Accepted response and must not burn the ladder.
         if response.status == 202 and "complete the following challenge" in head:
             return True, "search challenge shell"
-        if response.status == 202 and len(body) < SHORT_CHALLENGE_MAX_BYTES:
+        if response.status == 202 and len(body) < SHORT_CHALLENGE_MAX_BYTES and route_tier_for(url) is not None:
             return True, "202 challenge shell"
         # A short body plus generic human-verification language is a challenge
         # shell. Size alone never decides: a short page without a needle is
@@ -701,7 +701,7 @@ class ResearchSpider(Spider):
             # The fetch succeeded: a later on_error for this target is a
             # parse-callback failure, not a transport failure (RV-2).
             self._responded_ids.add(target_id)
-        blocked, signal = self._block_check(response)
+        blocked, signal = self._block_check(response, str(request.url) if request is not None else "")
         if blocked:
             # Blocked rungs emit their attempt record here; non-blocked rungs
             # emit in parse() so the record can carry the empty signal.

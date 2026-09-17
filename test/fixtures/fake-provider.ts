@@ -13,7 +13,7 @@ import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage, type Context } from "@earendil-works/pi-ai";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { isReminderWrapped } from "../../lib/injects/scan.js";
+import { isReminderWrapped, latestHumanMessage, messageText, type HumanMessageLike } from "../../lib/injects/scan.js";
 
 // A turn's user message triggers a single tool call ONLY when it carries this
 // token. Keeps the default (text-only) turn unchanged for every existing test;
@@ -29,14 +29,11 @@ const TOOLCALL_TRIGGER = "RUNTOOL";
 /** Trigger one read per latest RUNTOOL request; earlier tool results do not settle it. */
 export function wantsToolCall(context?: Context): boolean {
   const messages = context?.messages ?? [];
-  const userIndex = messages.map(m => m.role).lastIndexOf("user");
+  const lastUser = latestHumanMessage(messages as unknown as readonly HumanMessageLike[]);
+  if (lastUser === null) return false;
+  const userIndex = messages.lastIndexOf(lastUser as unknown as (typeof messages)[number]);
   if (messages.slice(userIndex + 1).some(m => m.role === "toolResult")) return false;
-  const lastUser = messages[userIndex];
-  const content = lastUser?.content;
-  const text =
-    typeof content === "string"
-      ? content
-      : (content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("");
+  const text = messageText(lastUser) ?? "";
   return text.includes(TOOLCALL_TRIGGER);
 }
 

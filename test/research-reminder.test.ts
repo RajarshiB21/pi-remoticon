@@ -27,14 +27,13 @@ describe("researchReminderInjection", () => {
     expect(reminder).toContain("research flow now: one fetch call");
     expect(reminder).toContain("<system-reminder>");
   });
-  it("does not stack on repeated model calls for the same ask", () => {
+  it("fires once per ask and never stacks on repeated model calls", () => {
     const state = createReminderState();
     for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
-    const ask = [user("search for the current state of x")];
-    const first = researchReminderInjection(state, ask);
-    expect(first).not.toBeNull();
-    const secondCallList = [ask[0]!, injected(first as string), fetchResult()];
-    expect(researchReminderInjection(state, secondCallList)).toBeNull();
+    const ask = user("what's the latest state of x");
+    expect(researchReminderInjection(state, [ask])).not.toBeNull();
+    expect(researchReminderInjection(state, [ask, injected("the reminder"), fetchResult()])).toBeNull();
+    expect(researchReminderInjection(state, [ask])).toBeNull();
   });
   it("defers to the distress hail mary", () => {
     const state = createReminderState();
@@ -50,6 +49,11 @@ describe("researchReminderInjection", () => {
     const state = createReminderState();
     for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
     expect(researchReminderInjection(state, [user("reading the current state of the repo")])).toBeNull();
+  });
+  it("stays silent when search means the repo, not the web", () => {
+    const state = createReminderState();
+    for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
+    expect(researchReminderInjection(state, [user("search the repo for the failing test")])).toBeNull();
   });
   it("fires again on a fresh keyword ask after the fetch budget resets", () => {
     const state = createReminderState();

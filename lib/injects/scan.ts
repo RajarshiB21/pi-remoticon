@@ -50,20 +50,6 @@ export function latestHumanMessage(messages: readonly HumanMessageLike[]): Human
 	return null;
 }
 
-/** True when a system-reminder carrying `marker` sits in the tail after the
- * latest human message, so an injection for this ask is already in place
- * and must not stack (the context hook fires before every model call). */
-export function injectedAfter(messages: readonly HumanMessageLike[], marker: string): boolean {
-	const latest = latestHumanMessage(messages);
-	if (latest === null) return false;
-	const index = messages.lastIndexOf(latest);
-	for (let after = index + 1; after < messages.length; after++) {
-		const text = messageText(messages[after]!);
-		if (text !== null && text.includes(marker)) return true;
-	}
-	return false;
-}
-
 /** The user-role message shape the injection extensions append: the text
  * wrapped in a single text block, timestamped now. */
 export function injectedMessage(text: string): { role: "user"; content: Array<{ type: "text"; text: string }>; timestamp: number } {

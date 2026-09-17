@@ -8,7 +8,7 @@
  * stays in the workspace's own files.
  */
 
-import { injectedAfter, latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
+import { latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
 
 export const TRIGGER_PHRASES: readonly string[] = ["i am in distress", "i'm in distress"];
 
@@ -18,9 +18,14 @@ export const HAIL_MARY_TEXT = [
 	"</system-reminder>",
 ].join("\n");
 
-/** Marker inside the injected text, so a repeat fire for the same ask is
- * detected without stacking. */
-const INJECTION_MARKER = "overriding every other instruction";
+export interface DistressState {
+	/** The human ask this exchange already injected for, or null. */
+	lastInjectedAsk: string | null;
+}
+
+export function createDistressState(): DistressState {
+	return { lastInjectedAsk: null };
+}
 
 export function matchesDistress(text: string | null): boolean {
 	if (text === null) return false;
@@ -28,14 +33,21 @@ export function matchesDistress(text: string | null): boolean {
 	return TRIGGER_PHRASES.some((phrase) => lowered.includes(phrase));
 }
 
-/** The hail mary to append on this model call, or null: null when the latest
- * human message does not state distress, or when this ask already carries
- * one (the hook fires before every model call; it must not stack). */
-export function distressInjection(messages: readonly HumanMessageLike[]): string | null {
+/**
+ * The hail mary to append on this model call, or null. Null when the latest
+ * human message does not state distress, or when this ask already received
+ * one. The context hook fires before every model call of a turn, and a
+ * context handler's returned messages do not persist into session history
+ * (verified against the installed harness), so the only workable dedup is
+ * state: remember the ask text fired for, fire once per ask, and let the
+ * owner's next message end the exchange naturally.
+ */
+export function distressInjection(state: DistressState, messages: readonly HumanMessageLike[]): string | null {
 	const latest = latestHumanMessage(messages);
 	if (latest === null) return null;
 	const text = messageText(latest);
 	if (text === null || !matchesDistress(text)) return null;
-	if (injectedAfter(messages, INJECTION_MARKER)) return null;
+	if (state.lastInjectedAsk === text) return null;
+	state.lastInjectedAsk = text;
 	return HAIL_MARY_TEXT;
 }
