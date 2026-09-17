@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import type { Task } from "../lib/sidebar/tasks/types.js";
 import {
   createCadenceState, onTurnStart, evaluateToolResult, drainReminderForContext,
-  buildSystemReminder, AutoClearManager, REMINDER_INTERVAL, ACTIVE_REMINDER_INTERVAL, REMINDER_MAX_TASKS,
+  buildSystemReminder, AutoClearManager, REMINDER_INTERVAL, ACTIVE_REMINDER_INTERVAL, REMINDER_MAX_TASKS, EMPTY_LIST_NUDGE_TURNS,
 } from "../lib/sidebar/tasks/reminders.js";
 import { TaskStore } from "../lib/sidebar/tasks/store.js";
 
-const cfg = (interval: number, names: ReadonlySet<string>) => ({ reminderInterval: interval, taskToolNames: names });
+const cfg = (interval: number, names: ReadonlySet<string>) => ({ reminderInterval: interval, taskToolNames: names, emptyListNudgeTurns: EMPTY_LIST_NUDGE_TURNS });
 const task = (id: string, status: Task["status"]): Task =>
   ({ id, subject: `s${id}`, description: "", status, metadata: {}, blocks: [], blockedBy: [], createdAt: 0, updatedAt: 0 });
 
@@ -25,14 +25,27 @@ describe("cadence", () => {
     expect(evaluateToolResult(s, "read", true, cfg(4, names)).markDue).toBe(true);
     expect(evaluateToolResult(s, "TaskCreate", true, cfg(4, names)).markDue).toBe(false);   // task tool resets
   });
-  it("drains once per cycle and stays quiet without tasks", () => {
+  it("drains once per cycle; the empty-list nudge owns the no-list case", () => {
     const s = createCadenceState();
     s.reminderDue = true;
     expect(drainReminderForContext(s)).toBe(true);
     expect(drainReminderForContext(s)).toBe(false);
     const quiet = createCadenceState();
     for (let i = 0; i < 9; i++) onTurnStart(quiet);
-    expect(evaluateToolResult(quiet, "read", false, cfg(4, new Set())).markDue).toBe(false);
+    // v4: the revived empty-list nudge fires for a no-list long task (it used
+    // to stay silent forever behind the dead gate).
+    expect(evaluateToolResult(quiet, "read", false, cfg(4, new Set())).markDue).toBe(true);
+    expect(evaluateToolResult(quiet, "read", false, cfg(4, new Set())).markDue).toBe(false);   // once only
+  });
+  it("nudges at the two-turn threshold and re-arms when a list exists", () => {
+    const s = createCadenceState();
+    onTurnStart(s);
+    expect(evaluateToolResult(s, "read", false, cfg(4, new Set())).markDue).toBe(false);   // one work turn: below threshold
+    onTurnStart(s);
+    expect(evaluateToolResult(s, "read", false, cfg(4, new Set())).markDue).toBe(true);    // two work turns: fires
+    expect(evaluateToolResult(s, "read", false, cfg(4, new Set())).markDue).toBe(false);   // once only
+    expect(evaluateToolResult(s, "TaskCreate", true, cfg(4, new Set())).markDue).toBe(false);  // a list exists: normal cadence owns it
+    expect(evaluateToolResult(s, "read", true, cfg(4, new Set())).markDue).toBe(false);
   });
 });
 

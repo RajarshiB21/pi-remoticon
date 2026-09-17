@@ -12,7 +12,7 @@ import { registerTaskTools, TASK_TOOL_NAMES } from "../lib/sidebar/tasks/tools.j
 import { resolveGlyphs } from "../lib/sidebar/tasks/glyphs.js";
 import {
   createCadenceState, onTurnStart, evaluateToolResult, drainReminderForContext,
-  buildSystemReminder, AutoClearManager, REMINDER_INTERVAL, ACTIVE_REMINDER_INTERVAL,
+  buildSystemReminder, AutoClearManager, REMINDER_INTERVAL, ACTIVE_REMINDER_INTERVAL, EMPTY_LIST_NUDGE_TURNS,
 } from "../lib/sidebar/tasks/reminders.js";
 import type { Task, TaskStatus } from "../lib/sidebar/tasks/types.js";
 
@@ -157,6 +157,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on("agent_settled", () => autoClear.onRunEnded());
   pi.on("turn_end", () => markDueIfStale(""));
   pi.on("tool_result", event => markDueIfStale(event.toolName));
+  // The empty-list nudge rides this same cadence: v4 made it reachable for
+  // batches that run long with no list at all.
   pi.on("context", event => {
     if (!drainReminderForContext(cadence)) return {};
     // pi REPLACES the message list with what a handler returns, so append to the current one.
@@ -170,7 +172,7 @@ export default function (pi: ExtensionAPI): void {
   });
   function markDueIfStale(toolName: string): void {
     const interval = tasks.some(t => t.status === "in_progress") ? ACTIVE_REMINDER_INTERVAL : REMINDER_INTERVAL;
-    if (evaluateToolResult(cadence, toolName, tasks.length > 0, { reminderInterval: interval, taskToolNames: TASK_TOOL_NAMES }).markDue)
+    if (evaluateToolResult(cadence, toolName, tasks.length > 0, { reminderInterval: interval, emptyListNudgeTurns: EMPTY_LIST_NUDGE_TURNS, taskToolNames: TASK_TOOL_NAMES }).markDue)
       cadence.reminderDue = true;
   }
 

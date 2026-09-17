@@ -17,6 +17,9 @@ export interface CadenceState {
   lastTaskToolUseTurn: number;
   reminderInjectedThisCycle: boolean;
   reminderDue: boolean;
+  /** v4: the empty-list nudge fired this session and stays quiet until a
+   *  list exists again. */
+  emptyNudgeFired: boolean;
 }
 
 export interface CadenceConfig {
@@ -24,6 +27,8 @@ export interface CadenceConfig {
   reminderInterval: number;
   /** Set of tool names that count as "task tool usage" and reset cadence. */
   taskToolNames: ReadonlySet<string>;
+  /** Work turns with no list before the empty-list nudge fires. */
+  emptyListNudgeTurns: number;
 }
 
 export function createCadenceState(): CadenceState {
@@ -32,6 +37,7 @@ export function createCadenceState(): CadenceState {
     lastTaskToolUseTurn: 0,
     reminderInjectedThisCycle: false,
     reminderDue: false,
+    emptyNudgeFired: false,
   };
 }
 
@@ -40,6 +46,7 @@ export function resetCadenceState(state: CadenceState): void {
   state.lastTaskToolUseTurn = 0;
   state.reminderInjectedThisCycle = false;
   state.reminderDue = false;
+  state.emptyNudgeFired = false;
 }
 
 /** Increment the turn counter at `turn_start`. */
@@ -68,14 +75,28 @@ export function evaluateToolResult(
     state.lastTaskToolUseTurn = state.currentTurn;
     state.reminderInjectedThisCycle = false;
     state.reminderDue = false;
+    state.emptyNudgeFired = false;
     return { markDue: false };
   }
+  // v4: the empty-list nudge, revived. The old gate returned false whenever
+  // no list existed, so buildSystemReminder's empty-list branch was
+  // unreachable dead code and a long task with no list got zero nudges
+  // forever. It fires once, two work turns in, and re-arms only when a
+  // list exists again.
+  if (!hasTasks) {
+    if (state.emptyNudgeFired || state.currentTurn < config.emptyListNudgeTurns) {
+      return { markDue: false };
+    }
+    state.emptyNudgeFired = true;
+    state.reminderDue = true;
+    return { markDue: true };
+  }
+  state.emptyNudgeFired = false;
   // Cheap guards first.
   if (state.currentTurn - state.lastTaskToolUseTurn < config.reminderInterval) {
     return { markDue: false };
   }
   if (state.reminderInjectedThisCycle) return { markDue: false };
-  if (!hasTasks) return { markDue: false };
   state.reminderDue = true;
   return { markDue: true };
 }
@@ -94,6 +115,7 @@ export function drainReminderForContext(state: CadenceState): boolean {
 
 export const REMINDER_INTERVAL = 4;
 export const ACTIVE_REMINDER_INTERVAL = 2;   // while any task is in_progress
+export const EMPTY_LIST_NUDGE_TURNS = 2;     // work turns with no list before the empty-list nudge fires
 export const REMINDER_MAX_TASKS = 10;
 
 const sanitize = (v: string) => v.replace(/[\r\n]+/g, " ").replace(/<\/?system-reminder>/gi, "").trim();
