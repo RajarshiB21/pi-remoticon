@@ -459,7 +459,11 @@ class ResearchSpider(Spider):
             AsyncDynamicSession(**common, capture_xhr=self._request.get("captureXhr"), wait=800, page_setup=self._install_public_route_guard),
             lazy=True,
         )
-        manager.add("stealth", AsyncStealthySession(**common, solve_cloudflare=True, page_setup=self._install_public_route_guard), lazy=True)
+        # capture_xhr reaches both browser tiers: a batch that asks for XHR
+        # capture can route targets to Stealth (google.com/search, hard
+        # domains), and a Stealth session without the pattern would silently
+        # return no captured matches for them (review fix).
+        manager.add("stealth", AsyncStealthySession(**common, capture_xhr=self._request.get("captureXhr"), solve_cloudflare=True, page_setup=self._install_public_route_guard), lazy=True)
 
     async def start_requests(self):
         # captureXhr opts the whole batch into a browser-capable first rung

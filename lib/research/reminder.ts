@@ -23,6 +23,16 @@ export const CURRENT_INFO_KEYWORDS: readonly string[] = [
 	"dated",
 ];
 
+/** The keywords as whole-word matchers: "dated" must not fire on
+ * "updated", "news" must not fire on "renews". */
+const CURRENT_INFO_MATCHERS: readonly RegExp[] = CURRENT_INFO_KEYWORDS.map(
+	(keyword) => new RegExp(`\\b${keyword}\\b`, "i"),
+);
+
+export function matchesCurrentInfo(text: string): boolean {
+	return CURRENT_INFO_MATCHERS.some((matcher) => matcher.test(text));
+}
+
 export const RESEARCH_REMINDER_TEXT = [
 	"<system-reminder>",
 	"This ask needs current-world information and no fetch has run in the last few turns. Run the research flow now: one fetch call with a concurrent search batch (google.com/search, bing.com/search, duckduckgo.com for the same query), then fetch two to four result URLs plainly and follow the trails. Do not answer from memory.",
@@ -34,12 +44,14 @@ export const RESEARCH_REMINDER_TEXT = [
 export interface ReminderState {
 	turn: number;
 	lastFetchTurn: number | null;
-	/** The human ask this exchange already injected for, or null. */
-	lastInjectedAsk: string | null;
+	/** The latest human ask seen on the previous call, or null. */
+	lastSeenAsk: string | null;
+	/** True once the current ask already received its reminder. */
+	injectedThisAsk: boolean;
 }
 
 export function createReminderState(): ReminderState {
-	return { turn: 0, lastFetchTurn: null, lastInjectedAsk: null };
+	return { turn: 0, lastFetchTurn: null, lastSeenAsk: null, injectedThisAsk: false };
 }
 
 export function reminderOnTurnStart(state: ReminderState): void {
@@ -47,7 +59,12 @@ export function reminderOnTurnStart(state: ReminderState): void {
 }
 
 export function reminderOnToolResult(state: ReminderState, toolName: string): void {
-	if (toolName === "fetch") state.lastFetchTurn = state.turn;
+	if (toolName === "fetch") {
+		state.lastFetchTurn = state.turn;
+		// A fetch serves the current ask's need: the latch re-arms so a
+		// later expired cadence on the same ask can remind again.
+		state.injectedThisAsk = false;
+	}
 }
 
 /** The reminder to append on this model call, or null. Null while a fetch
@@ -56,7 +73,8 @@ export function reminderOnToolResult(state: ReminderState, toolName: string): vo
  * received one. The context hook fires before every model call of a turn,
  * and its returned messages do not persist into session history (verified
  * against the installed harness), so the only workable dedup is state: the
- * ask text fired for is remembered, a new ask re-arms. */
+ * ask is remembered, the reminder fires once per ask, and a different
+ * latest ask or a recorded fetch re-arms it. */
 export function researchReminderInjection(
 	state: ReminderState,
 	messages: readonly HumanMessageLike[],
@@ -67,9 +85,12 @@ export function researchReminderInjection(
 	if (latest === null) return null;
 	const text = messageText(latest);
 	if (text === null || matchesDistress(text)) return null;
-	const lowered = text.toLowerCase();
-	if (!CURRENT_INFO_KEYWORDS.some((keyword) => lowered.includes(keyword))) return null;
-	if (state.lastInjectedAsk === text) return null;
-	state.lastInjectedAsk = text;
+	if (state.lastSeenAsk !== text) {
+		state.lastSeenAsk = text;
+		state.injectedThisAsk = false;
+	}
+	if (!matchesCurrentInfo(text)) return null;
+	if (state.injectedThisAsk) return null;
+	state.injectedThisAsk = true;
 	return RESEARCH_REMINDER_TEXT;
 }

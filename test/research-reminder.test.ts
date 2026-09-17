@@ -3,11 +3,14 @@ import {
 	createReminderState,
 	reminderOnToolResult,
 	reminderOnTurnStart,
+	RESEARCH_REMINDER_TEXT,
 	researchReminderInjection,
 } from "../lib/research/reminder.js";
+import { injectedMessage, latestHumanMessage } from "../lib/injects/scan.js";
 
 const user = (text: string) => ({ role: "user", content: text });
-const injected = (text: string) => ({ role: "user", content: text });
+/** The exact shape extensions/research-reminder.ts appends. */
+const injected = injectedMessage;
 const fetchResult = () => ({ role: "toolResult", content: "fetched pages" });
 
 describe("researchReminderInjection", () => {
@@ -27,12 +30,20 @@ describe("researchReminderInjection", () => {
     expect(reminder).toContain("research flow now: one fetch call");
     expect(reminder).toContain("<system-reminder>");
   });
+  it("fires on the third turn with no fetch ever recorded", () => {
+    const state = createReminderState();
+    for (let turn = 0; turn < 3; turn++) reminderOnTurnStart(state);
+    const reminder = researchReminderInjection(state, [user("what's the latest on x")]);
+    expect(reminder).toContain("research flow now: one fetch call");
+  });
   it("fires once per ask and never stacks on repeated model calls", () => {
     const state = createReminderState();
     for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
     const ask = user("what's the latest state of x");
     expect(researchReminderInjection(state, [ask])).not.toBeNull();
-    expect(researchReminderInjection(state, [ask, injected("the reminder"), fetchResult()])).toBeNull();
+    const context = [ask, injected(RESEARCH_REMINDER_TEXT), fetchResult()];
+    expect(latestHumanMessage(context)).toBe(ask);
+    expect(researchReminderInjection(state, context)).toBeNull();
     expect(researchReminderInjection(state, [ask])).toBeNull();
   });
   it("defers to the distress hail mary", () => {
@@ -54,6 +65,20 @@ describe("researchReminderInjection", () => {
     const state = createReminderState();
     for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
     expect(researchReminderInjection(state, [user("search the repo for the failing test")])).toBeNull();
+  });
+  it("does not treat local words containing a keyword as a match", () => {
+    const state = createReminderState();
+    for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
+    expect(researchReminderInjection(state, [user("I updated the parser module")])).toBeNull();
+  });
+  it("re-arms for the same ask on a later turn after the cadence resets", () => {
+    const state = createReminderState();
+    for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
+    const ask = [user("what's the latest state of x")];
+    expect(researchReminderInjection(state, ask)).not.toBeNull();
+    reminderOnToolResult(state, "fetch");
+    for (let turn = 0; turn < 4; turn++) reminderOnTurnStart(state);
+    expect(researchReminderInjection(state, ask)).not.toBeNull();
   });
   it("fires again on a fresh keyword ask after the fetch budget resets", () => {
     const state = createReminderState();

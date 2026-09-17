@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createDistressState, distressInjection, matchesDistress } from "../lib/distress/hailmary.js";
+import { createDistressState, distressInjection, HAIL_MARY_TEXT, matchesDistress } from "../lib/distress/hailmary.js";
+import { injectedMessage, latestHumanMessage } from "../lib/injects/scan.js";
 
 const user = (text: string) => ({ role: "user", content: text });
 /** The exact shape extensions/distress.ts appends (the lib text carries its own tags). */
-const injected = (text: string) => ({ role: "user", content: text });
+const injected = injectedMessage;
 const toolResult = (text: string) => ({ role: "toolResult", content: text });
 
 describe("matchesDistress", () => {
@@ -36,7 +37,9 @@ describe("distressInjection", () => {
     const state = createDistressState();
     const ask = user("i am in distress");
     expect(distressInjection(state, [ask])).not.toBeNull();
-    expect(distressInjection(state, [ask, injected("the hail mary"), toolResult("kept working")])).toBeNull();
+    const context = [ask, injected(HAIL_MARY_TEXT), toolResult("kept working")];
+    expect(latestHumanMessage(context)).toBe(ask);
+    expect(distressInjection(state, context)).toBeNull();
     expect(distressInjection(state, [ask])).toBeNull();
   });
   it("ends when the owner's next message arrives, and a fresh ask fires again", () => {
@@ -44,5 +47,11 @@ describe("distressInjection", () => {
     expect(distressInjection(state, [user("i am in distress")])).not.toBeNull();
     expect(distressInjection(state, [user("ok continue with the plan")])).toBeNull();
     expect(distressInjection(state, [user("i am in distress again")])).not.toBeNull();
+  });
+  it("re-arms when the exact same phrase arrives in a later exchange", () => {
+    const state = createDistressState();
+    expect(distressInjection(state, [user("i am in distress")])).not.toBeNull();
+    expect(distressInjection(state, [user("continue")])).toBeNull();
+    expect(distressInjection(state, [user("i am in distress")])).not.toBeNull();
   });
 });

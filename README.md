@@ -73,7 +73,7 @@ Browser rungs block ads and trackers, and they also block the subrequest domains
 flowchart TD
     U["target URL"] --> G{"host resolves to<br/>a public address?"}
     G -->|"no"| DE0["dead end<br/>no request made"]
-    G -->|"yes"| R1["rung 1<br/>http, or stealth on a hard domain,<br/>or a browser rung for captureXhr"]
+    G -->|"yes"| R1["rung 1<br/>http, or stealth for hard domains and google search,<br/>dynamic for bing and duckduckgo search, or a browser rung for captureXhr"]
     R1 -->|"usable content"| OK["usable<br/>status, sizes, Markdown"]
     R1 -->|"bot wall or challenge"| R2["rung 2<br/>same tier"]
     R2 -->|"usable content"| OK

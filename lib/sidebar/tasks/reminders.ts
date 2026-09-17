@@ -75,7 +75,9 @@ export function evaluateToolResult(
     state.lastTaskToolUseTurn = state.currentTurn;
     state.reminderInjectedThisCycle = false;
     state.reminderDue = false;
-    state.emptyNudgeFired = false;
+    // An empty TaskList must not re-arm the nudge; only a list that
+    // exists again re-arms it (review fix).
+    if (hasTasks) state.emptyNudgeFired = false;
     return { markDue: false };
   }
   // v4: the empty-list nudge, revived. The old gate returned false whenever

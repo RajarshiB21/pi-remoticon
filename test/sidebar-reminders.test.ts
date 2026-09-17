@@ -47,6 +47,22 @@ describe("cadence", () => {
     expect(evaluateToolResult(s, "TaskCreate", true, cfg(4, new Set())).markDue).toBe(false);  // a list exists: normal cadence owns it
     expect(evaluateToolResult(s, "read", true, cfg(4, new Set())).markDue).toBe(false);
   });
+  it("an empty TaskList result does not re-arm the nudge", () => {
+    const s = createCadenceState();
+    const taskNames = new Set(["TaskCreate", "TaskList"]);
+    onTurnStart(s);
+    expect(evaluateToolResult(s, "read", false, cfg(4, taskNames)).markDue).toBe(false);
+    onTurnStart(s);
+    expect(evaluateToolResult(s, "read", false, cfg(4, taskNames)).markDue).toBe(true);    // fires at the threshold
+    expect(evaluateToolResult(s, "TaskList", false, cfg(4, taskNames)).markDue).toBe(false);   // empty list: latch held
+    onTurnStart(s);
+    onTurnStart(s);
+    expect(evaluateToolResult(s, "read", false, cfg(4, taskNames)).markDue).toBe(false);   // still held, no re-nudge
+    expect(evaluateToolResult(s, "TaskCreate", true, cfg(4, taskNames)).markDue).toBe(false);  // a list exists: re-arms
+    onTurnStart(s);
+    onTurnStart(s);
+    expect(evaluateToolResult(s, "read", true, cfg(4, taskNames)).markDue).toBe(false);    // normal cadence owns it now
+  });
 });
 
 describe("reminder text", () => {

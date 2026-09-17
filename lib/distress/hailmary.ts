@@ -19,12 +19,14 @@ export const HAIL_MARY_TEXT = [
 ].join("\n");
 
 export interface DistressState {
-	/** The human ask this exchange already injected for, or null. */
-	lastInjectedAsk: string | null;
+	/** The latest human ask seen on the previous call, or null. */
+	lastSeenAsk: string | null;
+	/** True once the current ask already received its hail mary. */
+	injectedThisAsk: boolean;
 }
 
 export function createDistressState(): DistressState {
-	return { lastInjectedAsk: null };
+	return { lastSeenAsk: null, injectedThisAsk: false };
 }
 
 export function matchesDistress(text: string | null): boolean {
@@ -39,15 +41,21 @@ export function matchesDistress(text: string | null): boolean {
  * one. The context hook fires before every model call of a turn, and a
  * context handler's returned messages do not persist into session history
  * (verified against the installed harness), so the only workable dedup is
- * state: remember the ask text fired for, fire once per ask, and let the
- * owner's next message end the exchange naturally.
+ * state: the ask is remembered, the hail mary fires once per ask, and any
+ * different latest ask — including the same phrase repeated in a later
+ * exchange — re-arms it.
  */
 export function distressInjection(state: DistressState, messages: readonly HumanMessageLike[]): string | null {
 	const latest = latestHumanMessage(messages);
 	if (latest === null) return null;
 	const text = messageText(latest);
-	if (text === null || !matchesDistress(text)) return null;
-	if (state.lastInjectedAsk === text) return null;
-	state.lastInjectedAsk = text;
+	if (text === null) return null;
+	if (state.lastSeenAsk !== text) {
+		state.lastSeenAsk = text;
+		state.injectedThisAsk = false;
+	}
+	if (!matchesDistress(text)) return null;
+	if (state.injectedThisAsk) return null;
+	state.injectedThisAsk = true;
 	return HAIL_MARY_TEXT;
 }
