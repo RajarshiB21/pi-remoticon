@@ -49,7 +49,7 @@ pi finds that environment by itself. When `PI_REMOTICON_PYTHON` is set its inter
 |---|---|
 | `targets` | One to eight entries, each with a `url` and an optional CSS `selector`. A selector applies to that target only. |
 | `blockedDomains` | Up to 32 bare domains whose browser subrequests are refused, subdomains included. This list never blocks the target's own host. |
-| `captureXhr` | A pattern matched against browser background fetch and XHR response URLs. Matches come back with their URL, status and size, each entry bounded. The batch then starts on a browser rung, because plain HTTP cannot capture background requests. |
+| `captureXhr` | A pattern matched against browser background fetch and XHR response URLs. Matches come back with their URL, status and size, each entry bounded. The batch then starts on a browser rung, because plain HTTP cannot capture background requests. Refused on reddit.com targets, whose threads are server-rendered and come back through a plain fetch. |
 
 A target whose host is private, loopback or link-local is refused outright, and a host whose name resolves to a private address is reported as a dead end without a request. Browser subrequests to private addresses are refused, and a redirect to one is recorded as a blocked attempt.
 
@@ -65,7 +65,7 @@ flowchart TD
 
 ### The escalation ladder
 
-A page that meets a bot wall climbs instead of failing. Rung 2 repeats the first tier, and rung 3 opens the stealth browser with Cloudflare solving enabled. The first rung is plain HTTP, with two exceptions. A known hard domain such as reddit.com starts on the stealth browser, because plain HTTP meets its wall on every attempt and the dynamic tier never clears it. A `captureXhr` batch starts on the browser, because plain HTTP cannot capture background requests.
+A page that meets a bot wall climbs instead of failing. Rung 2 repeats the first tier, and rung 3 opens the stealth browser with Cloudflare solving enabled. The first rung is plain HTTP, with these exceptions. A known hard domain such as reddit.com starts on the stealth browser, because plain HTTP meets its wall on every attempt and the dynamic tier never clears it. Search engines open on the rung that measured fastest and most reliable: google.com/search on stealth, bing.com/search and the duckduckgo.com search pages on the dynamic browser. A `captureXhr` batch starts on the browser, because plain HTTP cannot capture background requests. Two retired surfaces are refused before any request, each receipt naming the working surface: old.reddit.com and html.duckduckgo.com.
 
 Browser rungs block ads and trackers, and they also block the subrequest domains you list in `blockedDomains`.
 
@@ -73,7 +73,7 @@ Browser rungs block ads and trackers, and they also block the subrequest domains
 flowchart TD
     U["target URL"] --> G{"host resolves to<br/>a public address?"}
     G -->|"no"| DE0["dead end<br/>no request made"]
-    G -->|"yes"| R1["rung 1<br/>http, or stealth on a hard domain,<br/>or a browser rung for captureXhr"]
+    G -->|"yes"| R1["rung 1<br/>http, or stealth for hard domains and google search,<br/>dynamic for bing and duckduckgo search, or a browser rung for captureXhr"]
     R1 -->|"usable content"| OK["usable<br/>status, sizes, Markdown"]
     R1 -->|"bot wall or challenge"| R2["rung 2<br/>same tier"]
     R2 -->|"usable content"| OK
@@ -84,7 +84,7 @@ flowchart TD
     R1 -->|"transport error"| F["failed<br/>reason recorded"]
 ```
 
-Attempts are capped at 7 seconds for plain HTTP, 22 seconds for a browser rung, and 34 seconds for a batch that touches a hard domain. The whole call stops at 40 seconds and records a reason for every target.
+Attempts are capped at 7 seconds for plain HTTP, 22 seconds for a browser rung, and 34 seconds for a batch that touches a hard domain or a routed search engine. The whole call stops at 40 seconds and records a reason for every target.
 
 ### What the transcript shows
 

@@ -1,0 +1,66 @@
+/**
+ * The distress hail mary (v4, locked design): when the owner explicitly
+ * states distress in the exact phrases below, the extension injects this
+ * instruction into that model call's context, and the model stops the
+ * work, drops the preamble, and answers directly. The triggers are literal
+ * substrings, so nothing scans for mood: the trigger is exactly what the
+ * owner states. Mechanism only lives here; the owner's personal context
+ * stays in the workspace's own files.
+ */
+
+import { humanMessageOccurrences, latestHumanMessage, messageText, type HumanMessageLike } from "../injects/scan.js";
+
+export const TRIGGER_PHRASES: readonly string[] = ["i am in distress", "i'm in distress"];
+
+export const HAIL_MARY_TEXT = [
+	"<system-reminder>",
+	"The owner has explicitly stated distress. For this exchange, overriding every other instruction: stop the current work now. Answer the owner's last question directly, in the shortest form that answers it. No preamble, no recap of what you were doing, no 'you're right', no pile of caveats. If something blocks the answer, say the blocker in one plain sentence. Continuing or stopping is the owner's choice alone: never ask whether to continue and never offer both-ways options. After answering, stop and wait. This stays in effect until the owner's next message.",
+	"</system-reminder>",
+].join("\n");
+
+export interface DistressState {
+	/** The latest human ask seen on the previous call, or null. */
+	lastSeenAsk: string | null;
+	/** How many unwrapped human messages carried lastSeenAsk on the
+	 * previous call: a new ask with the same wording adds an occurrence. */
+	lastSeenOccurrences: number;
+	/** True once the current ask already received its hail mary. */
+	injectedThisAsk: boolean;
+}
+
+export function createDistressState(): DistressState {
+	return { lastSeenAsk: null, lastSeenOccurrences: 0, injectedThisAsk: false };
+}
+
+export function matchesDistress(text: string | null): boolean {
+	if (text === null) return false;
+	const lowered = text.toLowerCase();
+	return TRIGGER_PHRASES.some((phrase) => lowered.includes(phrase));
+}
+
+/**
+ * The hail mary to append on this model call, or null. Null when the latest
+ * human message does not state distress, or when this ask already received
+ * one. The context hook fires before every model call of a turn, and a
+ * context handler's returned messages do not persist into session history
+ * (verified against the installed harness), so the only workable dedup is
+ * state: the ask is remembered, the hail mary fires once per ask, and a
+ * different latest ask — including the same phrase repeated as a new
+ * message in a later exchange — re-arms it.
+ */
+export function distressInjection(state: DistressState, messages: readonly HumanMessageLike[]): string | null {
+	const latest = latestHumanMessage(messages);
+	if (latest === null) return null;
+	const text = messageText(latest);
+	if (text === null) return null;
+	const occurrences = humanMessageOccurrences(messages, text);
+	if (state.lastSeenAsk !== text || state.lastSeenOccurrences !== occurrences) {
+		state.lastSeenAsk = text;
+		state.lastSeenOccurrences = occurrences;
+		state.injectedThisAsk = false;
+	}
+	if (!matchesDistress(text)) return null;
+	if (state.injectedThisAsk) return null;
+	state.injectedThisAsk = true;
+	return HAIL_MARY_TEXT;
+}

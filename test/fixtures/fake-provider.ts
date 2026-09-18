@@ -13,23 +13,27 @@ import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage, type Context } from "@earendil-works/pi-ai";
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { isReminderWrapped, latestHumanMessage, messageText, type HumanMessageLike } from "../../lib/injects/scan.js";
 
 // A turn's user message triggers a single tool call ONLY when it carries this
 // token. Keeps the default (text-only) turn unchanged for every existing test;
 // S1's box-death test opts in by putting the token in its message.
 const TOOLCALL_TRIGGER = "RUNTOOL";
 
+// The latest scripted ask skips extension-injected reminder messages (the
+// empty-list nudge, the task-list cadence): they are user-role messages
+// wrapped in <system-reminder>, and keying on them would displace the
+// human's ask in every no-list integration turn. The skip logic lives in
+// lib/injects/scan.ts (isReminderWrapped), shared with the injections.
+
 /** Trigger one read per latest RUNTOOL request; earlier tool results do not settle it. */
 export function wantsToolCall(context?: Context): boolean {
   const messages = context?.messages ?? [];
-  const userIndex = messages.map(m => m.role).lastIndexOf("user");
+  const lastUser = latestHumanMessage(messages as unknown as readonly HumanMessageLike[]);
+  if (lastUser === null) return false;
+  const userIndex = messages.lastIndexOf(lastUser as unknown as (typeof messages)[number]);
   if (messages.slice(userIndex + 1).some(m => m.role === "toolResult")) return false;
-  const lastUser = messages[userIndex];
-  const content = lastUser?.content;
-  const text =
-    typeof content === "string"
-      ? content
-      : (content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("");
+  const text = messageText(lastUser) ?? "";
   return text.includes(TOOLCALL_TRIGGER);
 }
 
@@ -84,7 +88,9 @@ export default function (pi: ExtensionAPI) {
         try {
           options?.signal?.throwIfAborted();
           stream.push({ type: "start", partial: out });
-          const latestUser = context?.messages.filter(message => message.role === "user").at(-1);
+          const latestUser = context?.messages
+            .filter((message) => message.role === "user" && !isReminderWrapped(message.content))
+            .at(-1);
           const polish = JSON.stringify(latestUser?.content ?? "").includes("POLISH");
           const skillRun = JSON.stringify(latestUser?.content ?? "").includes("SKILLREAD");
           const restore = JSON.stringify(latestUser?.content ?? "").includes("RESTORE");

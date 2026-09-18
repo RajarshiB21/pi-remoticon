@@ -127,6 +127,13 @@ describe("fetch payload", () => {
     expect(result.details.inlineBody).toBe(true);
   }, 30000);
 
+  it("refuses captureXhr on reddit targets before any helper call", async () => {
+    const tool = definitionWith([]);
+    await expect(
+      tool.execute("call-6", { targets: [{ url: "https://www.reddit.com/r/SillyTavernAI/comments/x" }], captureXhr: "api/" }, undefined, () => undefined),
+    ).rejects.toThrow("fetch: captureXhr is retired on reddit.com targets");
+  });
+
   it("returns the tree's details when the batch completed and nothing was usable", async () => {
     const failing = [
       BATCH_STARTED,

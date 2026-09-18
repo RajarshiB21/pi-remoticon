@@ -172,3 +172,20 @@ function shortUrl(url: string): string {
 	const visible = url.length <= 200 ? url : url.slice(0, 200) + "…";
 	return JSON.stringify(visible);
 }
+
+/**
+ * captureXhr on reddit.com is retired (v4, locked decision g): the threads
+ * are server-rendered, so a plain fetch is the reliable route, while the
+ * captureXhr route there is the flaky Dynamic tier (measured 2026-09-14,
+ * helper comment: "the Dynamic tier never clears this wall while Stealth
+ * does"). True when the URL's host is under reddit.com.
+ */
+export function isUnderReddit(url: string): boolean {
+	let host: string;
+	try {
+		host = new URL(url).hostname.toLowerCase().replace(/\.+$/, "");
+	} catch {
+		return false;
+	}
+	return host === "reddit.com" || host.endsWith(".reddit.com");
+}

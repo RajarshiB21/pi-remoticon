@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { isPrivateAddress, validateBlockedDomains, validateCaptureXhr, validateTargetUrl } from "../lib/research/validate.js";
+import { isPrivateAddress, isUnderReddit, validateBlockedDomains, validateCaptureXhr, validateTargetUrl } from "../lib/research/validate.js";
 
 const loopback = process.env.PI_RESEARCH_TEST_ALLOW_LOOPBACK;
 afterEach(() => {
@@ -55,6 +55,17 @@ describe("validateCaptureXhr", () => {
     expect(validateCaptureXhr("")?.message).toMatch(/non-empty/);
     expect(validateCaptureXhr("a".repeat(201))?.message).toMatch(/too long/);
     expect(validateCaptureXhr("(")?.message).toMatch(/not a valid pattern/);
+  });
+});
+
+describe("isUnderReddit", () => {
+  it("matches reddit.com and its subdomains only", () => {
+    expect(isUnderReddit("https://www.reddit.com/r/x/comments/1/")).toBe(true);
+    expect(isUnderReddit("https://old.reddit.com/r/x/")).toBe(true);
+    expect(isUnderReddit("https://reddit.com/search/?q=x")).toBe(true);
+    expect(isUnderReddit("https://notreddit.com/r/x/")).toBe(false);
+    expect(isUnderReddit("https://example.com/reddit.com")).toBe(false);
+    expect(isUnderReddit("not a url")).toBe(false);
   });
 });
 

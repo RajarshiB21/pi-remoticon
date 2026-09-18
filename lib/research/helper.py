@@ -36,6 +36,24 @@ R5 "Return to Vision" (2026-08-30, RV-1..RV-6) corrects the ladder:
   fails with curl (7) on example.com-class hosts in this environment
   (google.com/cloudflare.com pass), so a blanket default would break the
   HTTP rung; the measured reason is recorded in the ledger.
+
+R6 hard routes (2026-09-14, locked decisions): search engines open on
+the rung that measured fastest and most reliable, one request per
+query:
+- google.com/search -> Stealth direct. Plain HTTP is an empty JS shell
+  there, and the ladder burns three requests per query against a
+  per-query rate limit whose 429 never recovers on retry; Stealth
+  returns full results in one request.
+- bing.com/search and the duckduckgo.com search pages -> Dynamic
+  browser (one-attempt clears measured).
+Retired surfaces, refused at validation before any transport attempt;
+each receipt names the working surface and lives once, in ROUTE_TABLE:
+- old.reddit.com
+- html.duckduckgo.com
+Dynamic is registered unconditionally now (lazy, so it still launches
+only when a route or captureXhr uses it). DuckDuckGo-style challenge
+shells are blocked instead of read as usable content: a 202 with the
+challenge wording, and a 202 with a short body.
 """
 
 from __future__ import annotations
@@ -175,6 +193,54 @@ _UNUSABLE_NEEDLES = (
 )
 _LOGIN_FORM_SELECTOR = "input[type=password]"
 _DATA_URI = re.compile(r"!\[([^\]\n]*)\]\(data:[^)\s]{0,8192}?[^)]*\)")
+
+# v4 (2026-09-14, locked routes): search engines routed to the tier that
+# measured fastest and most reliable, one request per query. Matching is
+# by registrable-domain suffix (so www.bing.com is covered) and by path
+# prefix when given. A route overrides the first rung only; the ladder
+# after it is unchanged.
+ROUTE_TABLE: tuple[tuple[str, str | None, str], ...] = (
+    ("google.com", "/search", "stealth"),
+    ("bing.com", "/search", "dynamic"),
+    ("duckduckgo.com", None, "dynamic"),
+)
+
+# v4 (2026-09-14, locked): retired surfaces, refused before any transport
+# attempt, each receipt naming the working surface.
+RETIRED_SURFACES: tuple[tuple[str, str], ...] = (
+    ("old.reddit.com", "old.reddit.com requires a login; fetch www.reddit.com instead"),
+    ("html.duckduckgo.com", "html.duckduckgo.com serves a challenge shell this tool cannot use; fetch duckduckgo.com or lite.duckduckgo.com"),
+)
+
+
+def _host_matches_domain(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
+def route_tier_for(url: str) -> str | None:
+    """Tier override for a routed URL, else None (normal ladder)."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path or "/"
+    for domain, prefix, tier in ROUTE_TABLE:
+        if _host_matches_domain(host, domain) and (prefix is None or path == prefix or path.startswith(prefix + "/")):
+            return tier
+    return None
+
+
+def refusal_for(url: str) -> str | None:
+    """Retired-surface refusal text, else None."""
+    try:
+        host = (urlparse(url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return None
+    for domain, receipt in RETIRED_SURFACES:
+        if _host_matches_domain(host, domain):
+            return receipt
+    return None
 
 
 def _peak_rss_bytes() -> int | None:
@@ -377,28 +443,44 @@ class ResearchSpider(Spider):
             "block_ads": True,
             "blocked_domains": self._blocked_domains or None,
             "retries": 1,
-            "timeout": HARD_DOMAIN_BROWSER_TIMEOUT_MS if self._hard_domains_present() else BROWSER_TIMEOUT_MS,
+            "timeout": HARD_DOMAIN_BROWSER_TIMEOUT_MS if self._wide_budget_present() else BROWSER_TIMEOUT_MS,
             "max_pages": GLOBAL_CONCURRENCY,
             "cdp_url": CDP_URL,
         }
-        if self._request.get("captureXhr"):
-            # The Dynamic tier exists for one reason: capturing background XHR.
-            # Nothing else may request it, or a batch asks for a session that was
-            # never registered (the KeyError users saw on reddit.com).
-            manager.add(
-                "dynamic",
-                # wait=800: a short settle beat so background fetch/XHR
-                # responses land before the page closes (capture_xhr).
-                AsyncDynamicSession(**common, capture_xhr=self._request["captureXhr"], wait=800, page_setup=self._install_public_route_guard),
-                lazy=True,
-            )
-        manager.add("stealth", AsyncStealthySession(**common, solve_cloudflare=True, page_setup=self._install_public_route_guard), lazy=True)
+        # v4: Dynamic is registered unconditionally. Routed search engines
+        # (Bing, DuckDuckGo) open on it without captureXhr, and it is lazy,
+        # so it still launches only when a rung or route uses it. Registered
+        # only-when-captureXhr was the KeyError the users saw (a batch asking
+        # for a session that was never registered).
+        manager.add(
+            "dynamic",
+            # wait=800: a short settle beat so background fetch/XHR
+            # responses land before the page closes (capture_xhr).
+            AsyncDynamicSession(**common, capture_xhr=self._request.get("captureXhr"), wait=800, page_setup=self._install_public_route_guard),
+            lazy=True,
+        )
+        # capture_xhr reaches both browser tiers: a batch that asks for XHR
+        # capture can route targets to Stealth (google.com/search, hard
+        # domains), and a Stealth session without the pattern would silently
+        # return no captured matches for them (review fix).
+        manager.add("stealth", AsyncStealthySession(**common, capture_xhr=self._request.get("captureXhr"), solve_cloudflare=True, page_setup=self._install_public_route_guard), lazy=True)
 
     async def start_requests(self):
         # captureXhr opts the whole batch into a browser-capable first rung
         # because plain HTTP has no XHR (spec 6.3).
         first_tier = "dynamic" if self._request.get("captureXhr") else "http"
         for target in self._request["targets"]:
+            # v4: retired surfaces are refused here, before any transport
+            # attempt, with a receipt naming the working surface.
+            refusal = refusal_for(target["url"])
+            if refusal is not None:
+                self._finalize_page(
+                    target["id"],
+                    None,
+                    selector=(target.get("selector") or None),
+                    dead_end_reason=refusal,
+                )
+                continue
             host = (urlparse(target["url"]).hostname or "").lower().rstrip(".")
             if host and not await self._host_is_public(host):
                 # No request is made, so there is no attempt to record; the
@@ -410,8 +492,10 @@ class ResearchSpider(Spider):
                     dead_end_reason=f"host {host} does not resolve to a public address",
                 )
                 continue
-            tier = first_tier
-            kwargs = self._browser_kwargs(target) if tier == "dynamic" else {}
+            # v4 routed surfaces (search engines): the route fixes the first
+            # rung; the ladder after it is unchanged.
+            tier = route_tier_for(target["url"]) or first_tier
+            kwargs = self._browser_kwargs(target) if tier in ("dynamic", "stealth") else {}
             # RV-9 known-hard-domain fast path: some sites (reddit.com,
             # verified 2026-08-30) 403 the plain-HTTP rung at the bot wall
             # every time, so the first attempt is a wasted round-trip and an
@@ -445,10 +529,16 @@ class ResearchSpider(Spider):
         host = host.lower().rstrip(".")
         return any(host == d or host.endswith("." + d) for d in self.KNOWN_HARD_DOMAINS)
 
-    def _hard_domains_present(self) -> bool:
-        """True when any target is a known hard domain, so the batch as a whole
-        (its browser sessions are one pool per tier) needs the longer budget."""
-        return any(self._is_known_hard_domain(str(target.get("url", ""))) for target in self._request["targets"])
+    def _needs_wide_budget(self, url: str) -> bool:
+        """v4: routed search engines share the hard-domain budget. Measured
+        2026-09-14: Google stealth pages sometimes exceed the 22s default,
+        and the bounded settle beat suits their heavy pages."""
+        return self._is_known_hard_domain(url) or route_tier_for(url) is not None
+
+    def _wide_budget_present(self) -> bool:
+        """True when any target needs the wide budget, so the batch as a whole
+        (its browser sessions are one pool per tier) carries it."""
+        return any(self._needs_wide_budget(str(target.get("url", ""))) for target in self._request["targets"])
 
     def _browser_kwargs(self, target: dict | None) -> dict:
         """RV-5: the wider session surface on browser rungs. network_idle
@@ -463,7 +553,7 @@ class ResearchSpider(Spider):
         immediately. Those pages get a bounded settle beat instead.
         """
         url = str((target or {}).get("url", ""))
-        kwargs: dict = {"network_idle": False, "wait": 1500} if self._is_known_hard_domain(url) else {"network_idle": True}
+        kwargs: dict = {"network_idle": False, "wait": 1500} if self._needs_wide_budget(url) else {"network_idle": True}
         kwargs["disable_resources"] = True
         selector = ((target or {}).get("selector") or "").strip()
         if selector:
@@ -512,7 +602,7 @@ class ResearchSpider(Spider):
             ceiling = ATTEMPT_TIMEOUT_SECONDS.get(tier, 35.0)
             # The Stealth rung on a hard domain is the one that has to work, and
             # it is heavy: give it the budget its session also carries.
-            if tier in ("dynamic", "stealth") and self._is_known_hard_domain(str(req.url)):
+            if tier in ("dynamic", "stealth") and self._needs_wide_budget(str(req.url)):
                 ceiling = HARD_DOMAIN_ATTEMPT_SECONDS
             try:
                 response = await asyncio.wait_for(orig_fetch(req), timeout=ceiling)
@@ -572,7 +662,7 @@ class ResearchSpider(Spider):
         used_browser = bool(tiers & {"stealth", "dynamic"})
         return used_stealth, used_browser, len(self._blocked_domains) if used_browser else 0
 
-    def _block_check(self, response) -> tuple[bool, str | None]:
+    def _block_check(self, response, url: str = "") -> tuple[bool, str | None]:
         if response.status in EXTENDED_BLOCKED_CODES:
             return True, f"status {response.status}"
         try:
@@ -583,6 +673,18 @@ class ResearchSpider(Spider):
         for label, needle in _BLOCK_FINGERPRINTS:
             if needle in head:
                 return True, label
+        # v4: DuckDuckGo's challenge shell (measured 2026-09-14 on
+        # html.duckduckgo.com: status 202, ~13.9KB, this wording in the head)
+        # read as usable content, so the ladder never ran on it. The wording
+        # itself is the needle and stays uncapped: a search engine's challenge
+        # shell is not research content however large the shell is. A plain
+        # 202 with a short body is the same anomaly without the branding, but
+        # only on a routed search engine: on an ordinary host a short 202 is
+        # a real Accepted response and must not burn the ladder.
+        if response.status == 202 and "complete the following challenge" in head:
+            return True, "search challenge shell"
+        if response.status == 202 and len(body) < SHORT_CHALLENGE_MAX_BYTES and route_tier_for(url) is not None:
+            return True, "202 challenge shell"
         # A short body plus generic human-verification language is a challenge
         # shell. Size alone never decides: a short page without a needle is
         # never classified as blocked.
@@ -602,7 +704,7 @@ class ResearchSpider(Spider):
             # The fetch succeeded: a later on_error for this target is a
             # parse-callback failure, not a transport failure (RV-2).
             self._responded_ids.add(target_id)
-        blocked, signal = self._block_check(response)
+        blocked, signal = self._block_check(response, str(request.url) if request is not None else "")
         if blocked:
             # Blocked rungs emit their attempt record here; non-blocked rungs
             # emit in parse() so the record can carry the empty signal.
