@@ -35,7 +35,7 @@ export function createResearchDemandState(): ResearchDemandState {
  * when the owner typed the research command; anything else leaves the
  * state alone. */
 export function researchDemandOnInput(state: ResearchDemandState, text: string): void {
-	const trimmed = text.trim();
+	const trimmed = text.trim().toLowerCase();
 	const isCommand =
 		trimmed === RESEARCH_COMMAND ||
 		trimmed.startsWith(`${RESEARCH_COMMAND} `);

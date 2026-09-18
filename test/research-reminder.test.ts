@@ -26,8 +26,9 @@ describe("researchDemandOnInput", () => {
     const state = createResearchDemandState();
     researchDemandOnInput(state, "/skill:research");
     expect(state.armed).toBe(true);
-    researchDemandOnInput(state, "   /SKILL:RESEARCH latest release notes  ");
-    expect(state.armed).toBe(true);
+    const uppercaseState = createResearchDemandState();
+    researchDemandOnInput(uppercaseState, "   /SKILL:RESEARCH latest release notes  ");
+    expect(uppercaseState.armed).toBe(true);
   });
   it("stays silent on ordinary asks, even the words that used to trip the old guard", () => {
     const state = createResearchDemandState();
