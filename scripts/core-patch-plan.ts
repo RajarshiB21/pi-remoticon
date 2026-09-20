@@ -7,7 +7,7 @@ export const PI_NAME = "@earendil-works/pi-coding-agent";
 export const CLI_PATH = "dist/bundle/cli.js";
 export const STATE_DIR = ".pi-remoticon-patch";
 
-// Audited npm 0.85.1 bytes. Keep these literal fingerprints when later patches
+// Audited npm 0.86.0 bytes. Keep these literal fingerprints when later patches
 // change: the legacy thin-bar patch is the only earlier supported transform.
 export const ORIGINAL_HASH = "8091e2b1cefd6b2962c2af09cb2b1359eac6a4200e5047cf61eaddddb0345abd";
 export const THIN_BAR_HASH = "dc6b083dc16450b8bc82584cbc61718590c7c75192147a4c2eae2b955407e1b1";
