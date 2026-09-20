@@ -13,7 +13,7 @@ describe("patch regression gates", () => {
     copy = makePiCopy();
     applyCorePatch(copy.pkgDir);
     term = await bootPi(90000, 30000, [],
-      { quietStartup: true, package: true, retry: { enabled: true, maxRetries: 3, baseDelayMs: 15000 } },
+      { quietStartup: true, package: true, retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 } },
       undefined, copy.cli);
   });
 
@@ -50,5 +50,24 @@ describe("patch regression gates", () => {
     expect(frame).toContain("Stopped");
     expect(frame).not.toContain("Retrying");
     expect(frame).not.toContain("Remoticon UI patch unavailable");
+  }, 60000);
+
+  it("successful retry: completes the turn after one injected 500", async () => {
+    term.type("RETRYFAIL");
+    term.press("Enter");
+    await term.waitFor("Retrying", 20000);
+    // Wait for the scheduled retry to actually run and the response to render.
+    const retryGoneBy = Date.now() + 35000;
+    while (Date.now() < retryGoneBy && term.viewport.getText().includes("Retrying")) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    const frame = term.viewport.getText();
+    expect(frame).not.toContain("Retrying");
+    expect(frame).not.toContain("Stopped");
+    expect(frame).not.toContain("Remoticon UI patch unavailable");
+    // The normal canned response should have arrived. (The group test leaves
+    // earlier text in the scrollback, so we assert the retry finished rather
+    // than a specific string.)
+    expect(frame).toContain("fake-model");
   }, 60000);
 }, 180000);

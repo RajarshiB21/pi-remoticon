@@ -56,6 +56,10 @@ export default function (pi: ExtensionAPI) {
       return { exitCode: 0 };
     },
   } }));
+  // One retryable 500 per user turn. Tracking the user timestamp prevents
+  // re-injecting the error on every automatic retry attempt (pi drops the
+  // failed assistant message, so toolCount stays 0 across retries).
+  let lastRetryFailureUserTimestamp: number | undefined;
   pi.registerProvider("fake", {
     name: "Fake (test)",
     baseUrl: "http://127.0.0.1:1", // unreachable on purpose; never hit at frame-zero
@@ -104,9 +108,13 @@ export default function (pi: ExtensionAPI) {
           const taskGo = JSON.stringify(latestUser?.content ?? "").includes("TASKGO");
           const latestIndex = context.messages.lastIndexOf(latestUser!);
           const toolCount = context.messages.slice(latestIndex + 1).filter(message => message.role === "toolResult").length;
-          if (retryFail && toolCount === 0) {
-            // One retryable 500, exactly the shape pi's RETRYABLE_PROVIDER_ERROR_PATTERN
+          const userTimestamp = latestUser?.timestamp;
+          if (retryFail && toolCount === 0 && userTimestamp !== lastRetryFailureUserTimestamp) {
+            // One retryable 500 per user turn, exactly the shape pi's RETRYABLE_PROVIDER_ERROR_PATTERN
             // matches, so pi schedules a retry and the test can cancel it while pending.
+            // On automatic retries the failed assistant message is dropped, so toolCount stays 0;
+            // tracking the user timestamp prevents re-injecting the error on every attempt.
+            lastRetryFailureUserTimestamp = userTimestamp;
             out.stopReason = "error";
             out.errorMessage = "500 Internal Server Error";
             stream.push({ type: "error", reason: "error", error: out });
