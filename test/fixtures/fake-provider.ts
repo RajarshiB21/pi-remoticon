@@ -56,6 +56,10 @@ export default function (pi: ExtensionAPI) {
       return { exitCode: 0 };
     },
   } }));
+  // One retryable 500 per user turn. Tracking the user timestamp prevents
+  // re-injecting the error on every automatic retry attempt (pi drops the
+  // failed assistant message, so toolCount stays 0 across retries).
+  let lastRetryFailureUserTimestamp: number | undefined;
   pi.registerProvider("fake", {
     name: "Fake (test)",
     baseUrl: "http://127.0.0.1:1", // unreachable on purpose; never hit at frame-zero
@@ -97,12 +101,26 @@ export default function (pi: ExtensionAPI) {
           const boundary = JSON.stringify(latestUser?.content ?? "").includes("BOUNDARY");
           const failure = JSON.stringify(latestUser?.content ?? "").includes("FAILURE");
           const long = JSON.stringify(latestUser?.content ?? "").includes("LONG");
+          const retryFail = JSON.stringify(latestUser?.content ?? "").includes("RETRYFAIL");
           const groupRun = JSON.stringify(latestUser?.content ?? "").includes("GROUPTOOLS");
           const fetchBad = JSON.stringify(latestUser?.content ?? "").includes("FETCHBAD");
           const taskPlan = JSON.stringify(latestUser?.content ?? "").includes("TASKPLAN");
           const taskGo = JSON.stringify(latestUser?.content ?? "").includes("TASKGO");
           const latestIndex = context.messages.lastIndexOf(latestUser!);
           const toolCount = context.messages.slice(latestIndex + 1).filter(message => message.role === "toolResult").length;
+          const userTimestamp = latestUser?.timestamp;
+          if (retryFail && toolCount === 0 && userTimestamp !== lastRetryFailureUserTimestamp) {
+            // One retryable 500 per user turn, exactly the shape pi's RETRYABLE_PROVIDER_ERROR_PATTERN
+            // matches, so pi schedules a retry and the test can cancel it while pending.
+            // On automatic retries the failed assistant message is dropped, so toolCount stays 0;
+            // tracking the user timestamp prevents re-injecting the error on every attempt.
+            lastRetryFailureUserTimestamp = userTimestamp;
+            out.stopReason = "error";
+            out.errorMessage = "500 Internal Server Error";
+            stream.push({ type: "error", reason: "error", error: out });
+            stream.end();
+            return;
+          }
           if ((polish || restore && toolCount === 0 || boundary && toolCount < 2) && !wantsToolCall(context)) {
             const thinking = { type: "thinking" as const, thinking: "" };
             out.content.push(thinking);

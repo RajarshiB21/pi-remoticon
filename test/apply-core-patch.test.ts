@@ -77,7 +77,7 @@ describe("S0 pure patch plan", () => {
   });
 
   it("rejects changed backups, unknown fingerprints and manifest paths or duplicate records", () => {
-    const invalid = [null, {}, { ...manifest, target: `${target}-other` }, { ...manifest, version: "0.86.0" },
+    const invalid = [null, {}, { ...manifest, target: `${target}-other` }, { ...manifest, version: "0.86.1" },
       { ...manifest, files: [...manifest.files, ...manifest.files] },
       { ...manifest, files: [{ ...manifest.files[0], path: "../outside.js" }] },
       { ...manifest, files: [{ ...manifest.files[0], patchedHash: sha256("not a supported revision") }] }];

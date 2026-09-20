@@ -13,20 +13,25 @@ and summary clicks. Ctrl+T retains the native collapsed reasoning preference;
 these two toggles no longer append redundant transcript announcements.
 The composer prompt is display padding, and the two-row footer shows compact
 context, token totals, cost and the final directory segment with its branch.
-It targets audited npm pi **0.85.1**. Model execution, retry behavior, credentials,
+It targets audited npm pi **0.86.0**. Model execution, retry behavior, credentials,
 settings and stored sessions remain native.
 
 ## Inspect and apply
 
 Run these commands from pi-remoticon. Replace `<package-root>` with the actual
-`@earendil-works/pi-coding-agent` package directory. Every command requires a target;
-there is no default installation and no startup or postinstall patching.
+`@earendil-works/pi-coding-agent` package directory. The `core-patch` subcommands
+(`status`, `check`, `apply`, `restore`) require a `--target` argument; there is no
+default installation and no startup or postinstall patching.
 
 ```text
 npm run core-patch -- status --target "<package-root>"
 npm run core-patch -- check --target "<package-root>"
 npm run core-patch -- apply --target "<package-root>"
+npm run core-patch:audit
 ```
+
+`core-patch:audit` reads this repository's own `@earendil-works/pi-coding-agent`
+from `node_modules` and does not take a `--target` argument.
 
 `status` and `check` are read-only. They report the canonical installation path,
 version, patch state, source digest, manifest location, and recovery phase.

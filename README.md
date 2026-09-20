@@ -113,7 +113,7 @@ npm test
 
 `.github/workflows/ci.yml` runs typecheck, lint and the offline unit + integration suite on every push and pull request (Linux, no network, no Python, no model credentials). Pull requests are also reviewed by CodeRabbit; local pi verification and the merge stay with the owner.
 
-Some TUI behaviour cannot be reached from an extension and is delivered as a maintained pi-core patch (audited against pi 0.85.1 only). Three presentation modules are patched: the assistant message component, the tool group rows and the skill presenter. The fetch row paints its body through the tool-group rule.
+Some TUI behaviour cannot be reached from an extension and is delivered as a maintained pi-core patch (audited against pi 0.86.0 only). Three presentation modules are patched: the assistant message component, the tool group rows and the skill presenter. The fetch row paints its body through the tool-group rule.
 
 ```
 npm run core-patch -- status  --target <pi-package-root>

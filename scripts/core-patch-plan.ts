@@ -2,16 +2,16 @@ import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PI_VERSION = "0.85.1";
+export const PI_VERSION = "0.86.0";
 export const PI_NAME = "@earendil-works/pi-coding-agent";
 export const CLI_PATH = "dist/bundle/cli.js";
 export const STATE_DIR = ".pi-remoticon-patch";
 
-// Audited npm 0.85.1 bytes. Keep these literal fingerprints when later patches
+// Audited npm 0.86.0 bytes. Keep these literal fingerprints when later patches
 // change: the legacy thin-bar patch is the only earlier supported transform.
-export const ORIGINAL_HASH = "3d8b2dec97ff9fe4cabef1c69899b00cb8257c625fb0f66c52f4d9914a6b4232";
-export const THIN_BAR_HASH = "954207c65f4c6d21fa69c5b8d7a9b484d1932c11315dd06949ba797059835fea";
-export const BUNDLE_HASH = "11a2c450cb651aac10d180c3282775aee39fdcb0e423ed7c7a6d64dbd1d2616e";
+export const ORIGINAL_HASH = "8091e2b1cefd6b2962c2af09cb2b1359eac6a4200e5047cf61eaddddb0345abd";
+export const THIN_BAR_HASH = "dc6b083dc16450b8bc82584cbc61718590c7c75192147a4c2eae2b955407e1b1";
+export const BUNDLE_HASH = "bbb16214be9748c52613542d848388d55b42d062d25e0ebb6ba56aebd2b8bfdf";
 export const S1_HASH = "a131e48f5368829aa3fd6763e2120615a0562903d9e573b2e72362e665fb187e";
 export const INITIAL_UI_HASH = "2b59443dd6fe117213201279d8152a5ec1aba91bbaef106bb5971f21f848cd0f";
 export const RESTORATION_PREVIEW_HASH = "8dcf5264d66860c4d46030eca64a4558b2ef6e2e4dc0e8997ff62d4dd385b26c";
@@ -22,7 +22,7 @@ export const SKILL_PREVIEW_HASH = "1968440d198c79ad4d79adcab84903555a4eb1d29dd72
 export const COMPACT_SKILL_HASH = "43d1513f8461b10580dd3f7b715eef78167db016f39e62d5a3d5853be78af963";
 export const PREVIOUS_UI_HASH = "d3c79adc9c29069e0b45564044b7e4dec074b59b9f9664a9fff891f760304f27";
 export const LEGACY_UI_HASH = "5959d795fa3527de00404f7340a9602631ba421cb31bd315e46ccb042d6f46ff";
-export const UI_HASH = "3f57f1f2f80d426ff9db749c824b63fe55e33f84af334ec89a680f9f094c5a96";
+export const UI_HASH = "4c5cb61afeed262dcdfc68ca57e6033a37b1414f01abc97be2e156d489e34cbc";
 
 export interface PatchEntry { name: string; find: string; replace: string }
 // MIT excerpts from pi, copyright Mario Zechner. See patches/README.md.
@@ -36,8 +36,8 @@ export const PATCHES: readonly PatchEntry[] = [{
   replace: 'this.customFooter=factory(this.ui,theme,{getGitBranch:()=>this.footerDataProvider.getGitBranch(),getExtensionStatuses:()=>this.footerDataProvider.getExtensionStatuses(),getAvailableProviderCount:()=>this.footerDataProvider.getAvailableProviderCount(),onBranchChange:callback=>this.footerDataProvider.onBranchChange(callback),remoticon:{version:1,getState:()=>({autoCompactionEnabled:this.session.autoCompactionEnabled,outputPad:this.outputPad})}})',
 }, {
   name: "reset-retry-cancellation-notice",
-  find: 'async _runAgentPrompt(messages){this._isAgentRunActive=!0;',
-  replace: 'async _runAgentPrompt(messages){this.remoticonRetryStopped=false;this._isAgentRunActive=!0;',
+  find: 'async _runAgentPrompt(messages){this._agentRunAbortRequested=!1,this._isAgentRunActive=!0;',
+  replace: 'async _runAgentPrompt(messages){this._agentRunAbortRequested=!1,this.remoticonRetryStopped=false;this._isAgentRunActive=!0;',
 }, {
   name: "record-retry-cancellation-notice",
   find: 'abortRetry(){this._retryAbortController?.abort()}',
@@ -50,6 +50,13 @@ export const PATCHES: readonly PatchEntry[] = [{
 
 /** Fingerprint exact UTF-8 source or raw file bytes. */
 export const sha256 = (bytes: string | Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+
+/** Fingerprint the whole discovered graph: sorted [path, sha256] pairs, hashed. */
+export function bundleFingerprint(files: ReadonlyMap<string, string>): string {
+  const fingerprints = [...files].map(([path, bytes]) => [path, sha256(bytes)])
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  return sha256(JSON.stringify(fingerprints));
+}
 
 export interface Edit { path: string; original: string; patched: string; previous?: string }
 export interface FileRecord { path: string; originalHash: string; patchedHash: string; previousHash?: string }
@@ -128,9 +135,7 @@ export function inspectPlan(
       modified.push(path);
     }
   }
-  const fingerprints = [...pristine].map(([path, bytes]) => [path, sha256(bytes)])
-    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  if (sha256(JSON.stringify(fingerprints)) !== BUNDLE_HASH) throw new Error("Unrecorded whole-file hash or bundled dependency graph drift");
+  if (bundleFingerprint(pristine) !== BUNDLE_HASH) throw new Error("Unrecorded whole-file hash or bundled dependency graph drift");
   const edits = planEdits(pristine, entries);
   if (edits.length !== 1 || sha256(edits[0].original) !== ORIGINAL_HASH || sha256(edits[0].patched) !== UI_HASH) {
     throw new Error("Patch definitions no longer match the audited fingerprints");

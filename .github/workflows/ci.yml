@@ -53,3 +53,8 @@ jobs:
       - name: Lane 2+3 — unit + integration
         run: npm test
         timeout-minutes: 2
+
+      # Re-audit the patched-bundle fingerprints against the committed constants
+      # so a drift in anchors, hashes or pi version fails the build.
+      - name: Patch fingerprint audit
+        run: npm run core-patch:audit

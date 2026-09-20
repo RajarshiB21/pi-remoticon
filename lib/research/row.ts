@@ -22,7 +22,7 @@ type RowTheme = {
 	fg(color: "accent" | "dim" | "error" | "muted" | "success" | "warning", text: string): string;
 };
 
-/** The slice of pi's render context these rows read (pi 0.85.1 does not export the full type). */
+/** The slice of pi's render context these rows read (pi 0.86.0 does not export the full type). */
 type RenderContext = { state: unknown; isError?: boolean };
 
 export interface FetchRowState { marker?: "running" | "settled" | "failed" | "cancelled" }
