@@ -5,7 +5,8 @@ description: Run the live research flow for this turn. Invoke with /skill:resear
 
 The owner invoked research for this turn. Run the research flow now, in this order:
 
-1. One fetch call with a concurrent search batch: google.com/search, bing.com/search, and duckduckgo.com for the same query. A blocked engine costs one target slot, not the batch.
-2. Read what came back, then fetch two to four result URLs plainly and follow trails from evidence.
-3. Answer from the fetched evidence. Do not answer from memory.
-4. Close with a direct answer and a `Stands on:` line naming the sources the answer stands on.
+1. The owner's literal terms are the queries. An unrecognized name is a search, never a guess or a substitute. No conclusions, verdicts, or assessments before the first search batch returns.
+2. A concurrent search batch per unknown: google.com/search, bing.com/search, and duckduckgo.com for the same owner term, at most two unknowns in one fetch call (it caps at eight targets). A blocked engine costs one target slot, not the batch.
+3. Read what came back, then fetch two to four result URLs plainly and follow trails from evidence.
+4. Answer from the fetched evidence. Do not answer from memory.
+5. Close with a direct answer and a `Stands on:` line naming the sources the answer stands on.

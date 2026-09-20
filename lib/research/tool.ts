@@ -1,5 +1,5 @@
 /**
- * The model-callable `fetch` tool (docs/spec/RESEARCH_SPEC.md section 5).
+ * The model-callable `fetch` tool.
  * R2 shipped the targets schema with per-target selectors; R3 adds
  * blockedDomains and captureXhr with their mechanics. The helper chooses the
  * transport and escalates by fixed rules; the model cannot pick HTTP,
@@ -57,6 +57,11 @@ const R3_SNIPPET =
 	"Fetch one to eight public web URLs through local Scrapling, concurrently when given several targets, with clean bounded Markdown and automatic protected-page escalation.";
 
 /**
+ * v5 first-mile guidance (2026-09-20 supersedes the v4 lock; workspace spec
+ * 00_Mainframe/docs/superpowers/specs/2026-09-20-research-first-mile.md):
+ * bullet 1 now sources the query from the owner's literal terms and bans
+ * conclusions before the first batch returns. The v4 note follows for
+ * history.
  * v4 research-flow guidance (2026-09-14, locked): the A/B-tested draft is
  * the core (00_Mainframe/research-flow-append-draft.md; live experiment in
  * the workspace scratchpad section H — same model, same ask, this section
@@ -72,7 +77,7 @@ const R3_SNIPPET =
  * bullet names fetch (RV-7 discipline).
  */
 const RESEARCH_GUIDELINES = [
-	"Fetch is the research surface: when a question needs current-world information (a fact that changes, anything latest, recent, dated, or past your training cutoff), form the actual question, then make the first fetch call one concurrent search batch, never targets planned from memory.",
+	"Fetch is the research surface: when a question needs current-world information (a fact that changes, anything latest, recent, dated, or past your training cutoff), take the owner's literal terms as the queries and open with a concurrent search batch per unknown (three engine targets each, at most two unknowns in one fetch call because the tool caps a call at eight targets), never targets or query vocabulary planned from memory. Form no conclusion about the answer before the first batch returns.",
 	"Use fetch rather than Bash, curl, PowerShell, or another network command to retrieve public web evidence.",
 	"The search batch is one fetch call with up to three engine targets for the same query: https://www.google.com/search?q=<query>, https://www.bing.com/search?q=<query>, and https://duckduckgo.com/?q=<query>. A blocked engine costs one target slot, not the batch; the engines that answered carry it.",
 	"Read what the search batch returned, then fetch two to four result URLs plainly in one batch. Every later target traces to something a fetch returned; follow trails from evidence.",
