@@ -36,8 +36,8 @@ export const PATCHES: readonly PatchEntry[] = [{
   replace: 'this.customFooter=factory(this.ui,theme,{getGitBranch:()=>this.footerDataProvider.getGitBranch(),getExtensionStatuses:()=>this.footerDataProvider.getExtensionStatuses(),getAvailableProviderCount:()=>this.footerDataProvider.getAvailableProviderCount(),onBranchChange:callback=>this.footerDataProvider.onBranchChange(callback),remoticon:{version:1,getState:()=>({autoCompactionEnabled:this.session.autoCompactionEnabled,outputPad:this.outputPad})}})',
 }, {
   name: "reset-retry-cancellation-notice",
-  find: 'async _runAgentPrompt(messages){this._isAgentRunActive=!0;',
-  replace: 'async _runAgentPrompt(messages){this.remoticonRetryStopped=false;this._isAgentRunActive=!0;',
+  find: 'async _runAgentPrompt(messages){this._agentRunAbortRequested=!1,this._isAgentRunActive=!0;',
+  replace: 'async _runAgentPrompt(messages){this._agentRunAbortRequested=!1,this.remoticonRetryStopped=false;this._isAgentRunActive=!0;',
 }, {
   name: "record-retry-cancellation-notice",
   find: 'abortRetry(){this._retryAbortController?.abort()}',

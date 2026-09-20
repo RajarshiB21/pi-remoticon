@@ -60,7 +60,7 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
   };
   const insertion = "component.setExpanded(this.toolOutputExpanded),this.chatContainer.addChild(component)";
   const grouped = "component.setExpanded(this.toolOutputExpanded),remoticonTools.add(this.chatContainer,component,this.outputPad,this.session.resourceLoader.getSkills().skills)";
-  const failure = 'component.updateResult({content:[{type:"text",text:errorMessage2}],isError:!0})';
+  const failure = 'component.updateResult({content:[{type:"text",text:errorMessage3}],isError:!0})';
   return [
     { name: "assistant-content-runs", find: update, replace: `updateContent(message,isStreaming=this.isStreaming){this.remoticonPresenter??=(()=>{${source};return createAssistantPresenter})()({Container,Markdown,Text,MouseRegion,Spacer,truncateToWidth,getTheme:()=>theme,createMarkdownTransform});this.remoticonPresenter.call(this,message,isStreaming)}` },
     { name: "assistant-theme-invalidation", find: invalidate, replace: invalidate.replace("{", "{this.remoticonInvalidate?.();") },
@@ -80,12 +80,18 @@ export function runtimePatches(files: ReadonlyMap<string, string>): PatchEntry[]
     { name: "tool-group-observer", find: display, replace: `updateDisplay(){try{${display.slice(display.indexOf("{") + 1, -1)}}finally{this.remoticonChanged?.()}}` },
     scoped("handleEvent", value => {
       if (value.split(insertion).length !== 3) throw new Error("Expected two live tool insertions");
+      // Bare .replace() no-ops on a renamed minified identifier; assert every
+      // fragment is present exactly once so drift throws at plan time instead
+      // of shipping a half-patch.
+      if (value.split(failure).length !== 2) throw new Error("Expected one live tool failure anchor");
+      if (value.split('case"agent_settled":').length !== 2) throw new Error("Expected one agent_settled case");
       return value.replaceAll(insertion, grouped)
         .replace(failure, `(component.remoticonStopped=this.streamingMessage.stopReason==="aborted",${failure})`)
         .replace('case"agent_settled":', 'case"agent_settled":remoticonTools.stop(this.chatContainer);');
     }),
     scoped("renderSessionItems", value => {
       if (value.split(insertion).length !== 2) throw new Error("Expected one replay tool insertion");
+      if (value.split(failure).length !== 2) throw new Error("Expected one replay tool failure anchor");
       return value.replace(insertion, grouped).replace(failure, `(component.remoticonStopped=message.stopReason==="aborted",${failure})`);
     }),
     scoped("showSettingsSelector", value => {
