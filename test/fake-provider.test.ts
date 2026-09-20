@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ExtensionAPI, ProviderConfig, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Context, Model, Api, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { Context, Model, Api, ToolResultMessage, TranscriptContext } from "@earendil-works/pi-ai";
 import registerFake, { wantsToolCall } from "./fixtures/fake-provider.js";
 
 const user = { role: "user" as const, content: "RUNTOOL", timestamp: 1 };
@@ -17,8 +17,8 @@ describe("finite fake provider", () => {
     await expect(execution).rejects.toThrow("Command aborted");
     for (const [messages, expected] of [
       [[user], true], [[user, result], false], [[user, result, user], true],
-    ] as const) expect(wantsToolCall({ messages: [...messages] } as Context)).toBe(expected);
-    const context = { messages: [user, result, user] } as Context;
+    ] as const) expect(wantsToolCall({ messages: [...messages] } as unknown as TranscriptContext)).toBe(expected);
+    const context = { messages: [user, result, user] } as unknown as TranscriptContext;
     const calls: string[] = [];
     for (let i = 0; i < 2; i++) {
       const stream = config!.streamSimple!(model, context);
@@ -32,7 +32,7 @@ describe("finite fake provider", () => {
     }
     expect(new Set(calls).size).toBe(2);
     const controller = new AbortController();
-    const stream = config!.streamSimple!(model, { messages: [user, result] } as Context, { signal: controller.signal });
+    const stream = config!.streamSimple!(model, { messages: [user, result] } as unknown as TranscriptContext, { signal: controller.signal });
     const events = [];
     for await (const event of stream) {
       events.push(event.type);
