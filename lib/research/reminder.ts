@@ -20,7 +20,7 @@ export const RESEARCH_COMMAND = "/skill:research";
 
 export const RESEARCH_DEMAND_TEXT = [
 	"<system-reminder>",
-	"The owner invoked research for this turn and no search has run yet. Run the research flow now: one fetch call with a concurrent search batch per unknown (google.com/search, bing.com/search, duckduckgo.com for the owner's literal term), then fetch two to four result URLs plainly and follow the trails. Use the owner's literal terms as the queries; an unrecognized name is a search, not a guess, and no conclusion forms before the first batch returns. This repeats until a search built from the owner's terms has run.",
+	"The owner invoked research for this turn and no search has run yet. Run the research flow now: a concurrent search batch per unknown (google.com/search, bing.com/search, duckduckgo.com for the owner's literal term, at most two unknowns per fetch call), then fetch two to four result URLs plainly and follow the trails. Use the owner's literal terms as the queries; an unrecognized name is a search, not a guess, and no conclusion forms before the first batch returns. This repeats until a search built from the owner's terms has run.",
 	"</system-reminder>",
 ].join("\n");
 
@@ -36,7 +36,8 @@ export function provenanceNagText(flags: readonly string[]): string {
 export interface ResearchDemandState {
 	/** True once research was invoked and no search has run since. */
 	armed: boolean;
-	/** Latest owner text seen on an input event; the provenance baseline. */
+	/** Latest owner text seen on an input event; the provenance baseline.
+	 * While the demand is active it accumulates every owner message. */
 	ownerText: string | null;
 	/** Query tokens memory supplied, waiting to be named in one injection. */
 	pendingProvenanceFlags: string[];
@@ -48,17 +49,22 @@ export function createResearchDemandState(): ResearchDemandState {
 
 /** The raw user input, as the pi input event delivers it. Arms the demand
  * when the owner typed the research command (a fresh invocation starts
- * clean) and refreshes the provenance baseline with every owner message. */
+ * clean) and adds every later owner message to the baseline while the demand
+ * is active, so a follow-up never turns the demand's own words into foreign
+ * vocabulary. */
 export function researchDemandOnInput(state: ResearchDemandState, text: string): void {
 	const trimmed = text.trim();
 	const lowered = trimmed.toLowerCase();
 	const isCommand = lowered === RESEARCH_COMMAND || lowered.startsWith(`${RESEARCH_COMMAND} `);
 	// The command words are not owner vocabulary for provenance purposes.
-	state.ownerText = trimmed.replace(/^\/skill:research\b/i, "").trim();
+	const ownerPart = trimmed.replace(/^\/skill:research\b/i, "").trim();
 	if (isCommand) {
 		state.armed = true;
 		state.pendingProvenanceFlags = [];
+		state.ownerText = ownerPart;
+		return;
 	}
+	state.ownerText = state.armed && state.ownerText ? `${state.ownerText} ${ownerPart}` : ownerPart;
 }
 
 /** Decoded query when url is a google, bing or duckduckgo search URL,
@@ -153,10 +159,15 @@ export function researchDemandOnToolCall(state: ResearchDemandState, toolName: s
 
 /** A completed fetch serves the demand only when it ran a search built from
  * the owner's terms. A search carrying memory vocabulary leaves the demand
- * armed (spec Decisions: the offending fetch does not serve the demand), so
- * the pressure persists until a clean search runs. */
-export function researchDemandOnToolResult(state: ResearchDemandState, toolName: string, input: unknown): void {
-	if (toolName !== "fetch") return;
+ * armed (spec Decisions: the offending fetch does not serve the demand), and
+ * so does a fetch that errored, because no search completed. */
+export function researchDemandOnToolResult(
+	state: ResearchDemandState,
+	toolName: string,
+	input: unknown,
+	isError = false,
+): void {
+	if (toolName !== "fetch" || isError) return;
 	const targets = (input as { targets?: Array<{ url?: unknown }> } | null)?.targets ?? [];
 	const queries = targets
 		.map((target) => (typeof target.url === "string" ? searchQueryFromUrl(target.url) : null))

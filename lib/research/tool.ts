@@ -77,7 +77,7 @@ const R3_SNIPPET =
  * bullet names fetch (RV-7 discipline).
  */
 const RESEARCH_GUIDELINES = [
-	"Fetch is the research surface: when a question needs current-world information (a fact that changes, anything latest, recent, dated, or past your training cutoff), take the owner's literal terms as the queries and make the first fetch call one concurrent search batch per unknown, never targets or query vocabulary planned from memory. Form no conclusion about the answer before the first batch returns.",
+	"Fetch is the research surface: when a question needs current-world information (a fact that changes, anything latest, recent, dated, or past your training cutoff), take the owner's literal terms as the queries and open with a concurrent search batch per unknown (three engine targets each, at most two unknowns in one fetch call because the tool caps a call at eight targets), never targets or query vocabulary planned from memory. Form no conclusion about the answer before the first batch returns.",
 	"Use fetch rather than Bash, curl, PowerShell, or another network command to retrieve public web evidence.",
 	"The search batch is one fetch call with up to three engine targets for the same query: https://www.google.com/search?q=<query>, https://www.bing.com/search?q=<query>, and https://duckduckgo.com/?q=<query>. A blocked engine costs one target slot, not the batch; the engines that answered carry it.",
 	"Read what the search batch returned, then fetch two to four result URLs plainly in one batch. Every later target traces to something a fetch returned; follow trails from evidence.",

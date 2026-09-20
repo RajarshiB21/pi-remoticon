@@ -59,8 +59,21 @@ describe("researchDemandOnInput", () => {
     const state = createResearchDemandState();
     researchDemandOnInput(state, "/skill:research compare jev and inkling");
     expect(state.ownerText).toBe("compare jev and inkling");
-    researchDemandOnInput(state, "what does the second one cost");
-    expect(state.ownerText).toBe("what does the second one cost");
+  });
+  it("keeps the demand's own terms when a later owner message arrives", () => {
+    const state = createResearchDemandState();
+    researchDemandOnInput(state, "/skill:research compare jev and inkling");
+    researchDemandOnInput(state, "and also the Fatima framework");
+    researchDemandOnToolCall(state, "fetch", fetchTargets(["https://www.google.com/search?q=inkling"]));
+    expect(state.pendingProvenanceFlags).toEqual([]);        // inkling is still the owner's word
+    researchDemandOnToolCall(state, "fetch", fetchTargets(["https://www.google.com/search?q=hugging"]));
+    expect(state.pendingProvenanceFlags).toEqual(["hugging"]);
+  });
+  it("drops the previous baseline when a fresh demand starts", () => {
+    const state = createResearchDemandState();
+    researchDemandOnInput(state, "/skill:research compare jev and inkling");
+    researchDemandOnInput(state, "/skill:research now the Fatima framework");
+    expect(state.ownerText).toBe("now the Fatima framework");
   });
   it("a fresh invocation clears pending flags", () => {
     const state = createResearchDemandState();
@@ -199,6 +212,12 @@ describe("researchDemandOnToolResult", () => {
     researchDemandOnInput(state, RESEARCH_COMMAND);
     researchDemandOnToolResult(state, "fetch", fetchTargets(["https://www.bing.com/search?q=jev"]));
     expect(state.armed).toBe(false);
+  });
+  it("a failed search result does not serve the demand", () => {
+    const state = createResearchDemandState();
+    researchDemandOnInput(state, RESEARCH_COMMAND);
+    researchDemandOnToolResult(state, "fetch", fetchTargets(["https://www.bing.com/search?q=jev"]), true);
+    expect(state.armed).toBe(true);
   });
   it("ignores non-fetch tools", () => {
     const state = createResearchDemandState();

@@ -30,7 +30,7 @@ export default function (pi: ExtensionAPI): void {
 		// this handler never blocks.
 		researchDemandOnToolCall(state, event.toolName, event.input);
 	});
-	pi.on("tool_result", (event) => researchDemandOnToolResult(state, event.toolName, event.input));
+	pi.on("tool_result", (event) => researchDemandOnToolResult(state, event.toolName, event.input, event.isError));
 	pi.on("context", (event) => {
 		const injection = researchDemandInjection(state, event.messages);
 		if (injection === null) return {};
