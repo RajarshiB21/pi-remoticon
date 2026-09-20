@@ -108,6 +108,17 @@ describe("researchDemandOnToolCall", () => {
     researchDemandOnToolCall(state, "read", { path: "D:\\Workspace\\01_Active\\pi-remoticon\\skills\\research\\SKILL.md" });
     expect(state.armed).toBe(true);
   });
+  it("clears pending flags when the model-path invocation starts a fresh demand", () => {
+    const state = createResearchDemandState();
+    researchDemandOnInput(state, `/skill:research ${OWNER_JEV}`);
+    researchDemandOnToolCall(state, "fetch", fetchTargets(["https://www.google.com/search?q=jev+hugging"]));
+    researchDemandOnToolResult(state, "fetch", fetchTargets(["https://www.google.com/search?q=jev+hugging"]));
+    researchDemandOnToolResult(state, "fetch", SEARCH_BATCH);   // a clean search serves it; flags still pending
+    expect(state.armed).toBe(false);
+    researchDemandOnToolCall(state, "read", { path: "D:\\Workspace\\01_Active\\pi-remoticon\\skills\\research\\SKILL.md" });
+    expect(state.armed).toBe(true);
+    expect(state.pendingProvenanceFlags).toEqual([]);           // stale flags never bleed into a fresh demand
+  });
   it("flags query words no owner message contains (the audit's hugging-face fixture)", () => {
     const state = createResearchDemandState();
     researchDemandOnInput(state, `/skill:research ${OWNER_JEV}`);
@@ -171,6 +182,9 @@ describe("foreignQueryTokens", () => {
   it("returns empty with a null baseline", () => {
     expect(foreignQueryTokens(null, "anything at all")).toEqual([]);
   });
+  it("returns empty when the owner message carries no terms of its own (bare command)", () => {
+    expect(foreignQueryTokens("", "jev hugging face")).toEqual([]);
+  });
 });
 
 describe("researchDemandOnToolResult", () => {
@@ -219,7 +233,7 @@ describe("researchDemandInjection", () => {
     researchDemandOnInput(state, "/skill:research this again");
     expect(researchDemandInjection(state, ask)).not.toBeNull();
   });
-  it("names foreign tokens once, and survives disarm to say it (the audit scenario)", () => {
+  it("names foreign tokens once and keeps the demand armed until a clean search (the audit scenario)", () => {
     const state = createResearchDemandState();
     researchDemandOnInput(state, `/skill:research ${OWNER_JEV}`);
     researchDemandOnToolCall(state, "fetch", fetchTargets([
@@ -227,12 +241,17 @@ describe("researchDemandInjection", () => {
     ]));
     researchDemandOnToolResult(state, "fetch", fetchTargets([
       "https://www.google.com/search?q=jev+model+hugging+face",
-    ])); // the contaminated search itself disarms
+    ])); // a contaminated search does not serve the demand
     const ask = [user(`/skill:research ${OWNER_JEV}`)];
     const nag = researchDemandInjection(state, ask);
     expect(nag).toContain("hugging, face");
     expect(nag).toContain("literal terms");
-    expect(researchDemandInjection(state, ask)).toBeNull();                   // consumed on emission
+    expect(nag).toContain(RESEARCH_DEMAND_TEXT);                              // measured against the demand too
+    expect(state.armed).toBe(true);                                           // the pressure persists
+    expect(researchDemandInjection(state, ask)).toBe(RESEARCH_DEMAND_TEXT);   // flags consumed once, demand stays
+    researchDemandOnToolCall(state, "fetch", SEARCH_BATCH);
+    researchDemandOnToolResult(state, "fetch", SEARCH_BATCH);
+    expect(researchDemandInjection(state, ask)).toBeNull();                   // the owner's own terms served it
   });
   it("combines the provenance nag with the demand while still armed", () => {
     const state = createResearchDemandState();

@@ -3,8 +3,9 @@
  * 2026-09-20-research-first-mile.md): the owner invokes research with
  * `/skill:research` or the model loads the research SKILL.md itself; both
  * arm the demand. The context hook injects the nag until a real search
- * engine fetch disarms it, so a memory-planned direct fetch no longer
- * counts. While armed, search queries whose tokens appear in no owner
+ * engine fetch built from the owner's terms disarms it, so neither a
+ * memory-planned direct fetch nor a search on memory vocabulary counts.
+ * While armed, search queries whose tokens appear in no owner
  * message are flagged; the next injection names the foreign vocabulary and
  * demands the owner's literal terms. The distress hail mary outranks every
  * injection.
@@ -19,7 +20,7 @@ export const RESEARCH_COMMAND = "/skill:research";
 
 export const RESEARCH_DEMAND_TEXT = [
 	"<system-reminder>",
-	"The owner invoked research for this turn and no search has run yet. Run the research flow now: one fetch call with a concurrent search batch per unknown (google.com/search, bing.com/search, duckduckgo.com for the owner's literal term), then fetch two to four result URLs plainly and follow the trails. Use the owner's literal terms as the queries; an unrecognized name is a search, not a guess, and no conclusion forms before the first batch returns. This repeats until a search has run.",
+	"The owner invoked research for this turn and no search has run yet. Run the research flow now: one fetch call with a concurrent search batch per unknown (google.com/search, bing.com/search, duckduckgo.com for the owner's literal term), then fetch two to four result URLs plainly and follow the trails. Use the owner's literal terms as the queries; an unrecognized name is a search, not a guess, and no conclusion forms before the first batch returns. This repeats until a search built from the owner's terms has run.",
 	"</system-reminder>",
 ].join("\n");
 
@@ -96,10 +97,14 @@ function tokenSet(text: string): Set<string> {
 	);
 }
 
-/** Query tokens present in no owner message: vocabulary memory supplied. */
+/** Query tokens present in no owner message: vocabulary memory supplied.
+ * An owner message with no terms of its own (a bare command) leaves nothing
+ * to compare against, so provenance stays off rather than flagging every
+ * word of a legitimate query. */
 export function foreignQueryTokens(ownerText: string | null, query: string): string[] {
 	if (ownerText === null) return [];
 	const owner = tokenSet(ownerText);
+	if (owner.size === 0) return [];
 	return [...tokenSet(query)].filter((token) => !GENERIC_MODIFIERS.has(token) && !owner.has(token));
 }
 
@@ -131,7 +136,10 @@ export function isResearchSkillLoad(toolName: string, input: unknown): boolean {
  * demand; a fetch whose search queries carry non-owner words is flagged
  * for the next injection. */
 export function researchDemandOnToolCall(state: ResearchDemandState, toolName: string, input: unknown): void {
-	if (!state.armed && isResearchSkillLoad(toolName, input)) state.armed = true;
+	if (!state.armed && isResearchSkillLoad(toolName, input)) {
+		state.armed = true;
+		state.pendingProvenanceFlags = [];
+	}
 	if (!state.armed || toolName !== "fetch") return;
 	const targets = (input as { targets?: Array<{ url?: unknown }> } | null)?.targets ?? [];
 	for (const target of targets) {
@@ -143,12 +151,18 @@ export function researchDemandOnToolCall(state: ResearchDemandState, toolName: s
 	state.pendingProvenanceFlags = [...new Set(state.pendingProvenanceFlags)];
 }
 
-/** A completed fetch serves the demand only when it ran a real search. */
+/** A completed fetch serves the demand only when it ran a search built from
+ * the owner's terms. A search carrying memory vocabulary leaves the demand
+ * armed (spec Decisions: the offending fetch does not serve the demand), so
+ * the pressure persists until a clean search runs. */
 export function researchDemandOnToolResult(state: ResearchDemandState, toolName: string, input: unknown): void {
 	if (toolName !== "fetch") return;
 	const targets = (input as { targets?: Array<{ url?: unknown }> } | null)?.targets ?? [];
-	const searched = targets.some((target) => typeof target.url === "string" && searchQueryFromUrl(target.url) !== null);
-	if (searched) state.armed = false;
+	const queries = targets
+		.map((target) => (typeof target.url === "string" ? searchQueryFromUrl(target.url) : null))
+		.filter((query): query is string => query !== null);
+	const contaminated = queries.some((query) => foreignQueryTokens(state.ownerText, query).length > 0);
+	if (queries.length > 0 && !contaminated) state.armed = false;
 }
 
 /**
