@@ -13,7 +13,7 @@ and summary clicks. Ctrl+T retains the native collapsed reasoning preference;
 these two toggles no longer append redundant transcript announcements.
 The composer prompt is display padding, and the two-row footer shows compact
 context, token totals, cost and the final directory segment with its branch.
-It targets audited npm pi **0.85.1**. Model execution, retry behavior, credentials,
+It targets audited npm pi **0.86.0**. Model execution, retry behavior, credentials,
 settings and stored sessions remain native.
 
 ## Inspect and apply
@@ -26,6 +26,7 @@ there is no default installation and no startup or postinstall patching.
 npm run core-patch -- status --target "<package-root>"
 npm run core-patch -- check --target "<package-root>"
 npm run core-patch -- apply --target "<package-root>"
+npm run core-patch:audit
 ```
 
 `status` and `check` are read-only. They report the canonical installation path,

@@ -21,7 +21,7 @@ interface Owner {
 }
 
 /** Retain native Markdown, mouse controls and the AssistantMessageComponent owner.
- * Adapted from pi 0.85.1 assistant-message.js, MIT, copyright Mario Zechner.
+ * Adapted from pi 0.86.0 assistant-message.js, MIT, copyright Mario Zechner.
  */
 export function createAssistantPresenter(d: {
   Container: typeof Container; Markdown: typeof Markdown; Text: typeof Text; MouseRegion: typeof MouseRegion; Spacer: typeof Spacer;
