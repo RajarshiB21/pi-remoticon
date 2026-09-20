@@ -47,12 +47,12 @@ export function validateTestArgs(args: readonly string[]): void {
   }
 }
 
-export interface BootSettings { quietStartup?: boolean; package?: boolean; skill?: boolean; env?: Record<string, string> }
+export interface BootSettings { quietStartup?: boolean; package?: boolean; skill?: boolean; env?: Record<string, string>; retry?: { enabled: boolean; maxRetries: number; baseDelayMs: number } }
 
 /** Boot the offline fake model with fresh directories, removed when the terminal closes. */
 export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: string[] = [], settings: BootSettings = {}, cwd?: string, piCli = PI_CLI): Promise<TestTerminal> {
   validateTestArgs(extraArgs);
-  if (Object.keys(settings).some(key => !["quietStartup", "package", "skill", "env"].includes(key))) throw new Error("Only fixture startup/package settings are allowed");
+  if (Object.keys(settings).some(key => !["quietStartup", "package", "skill", "env", "retry"].includes(key))) throw new Error("Only fixture startup/package settings are allowed");
   const home = mkdtempSync(join(tmpdir(), "pi-test-"));
   let term: TestTerminal | undefined;
   try {
@@ -70,6 +70,7 @@ export async function bootPi(paintMs = 15000, stableMs = 15000, extraArgs: strin
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
       quietStartup: settings.quietStartup ?? false,
+      ...(settings.retry ? { retry: settings.retry } : {}),
       ...(settings.package ? { packages: [repoRoot], theme: "remoticon" } : {}),
     }));
     ackChangelog(home);

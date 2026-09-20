@@ -97,12 +97,22 @@ export default function (pi: ExtensionAPI) {
           const boundary = JSON.stringify(latestUser?.content ?? "").includes("BOUNDARY");
           const failure = JSON.stringify(latestUser?.content ?? "").includes("FAILURE");
           const long = JSON.stringify(latestUser?.content ?? "").includes("LONG");
+          const retryFail = JSON.stringify(latestUser?.content ?? "").includes("RETRYFAIL");
           const groupRun = JSON.stringify(latestUser?.content ?? "").includes("GROUPTOOLS");
           const fetchBad = JSON.stringify(latestUser?.content ?? "").includes("FETCHBAD");
           const taskPlan = JSON.stringify(latestUser?.content ?? "").includes("TASKPLAN");
           const taskGo = JSON.stringify(latestUser?.content ?? "").includes("TASKGO");
           const latestIndex = context.messages.lastIndexOf(latestUser!);
           const toolCount = context.messages.slice(latestIndex + 1).filter(message => message.role === "toolResult").length;
+          if (retryFail && toolCount === 0) {
+            // One retryable 500, exactly the shape pi's RETRYABLE_PROVIDER_ERROR_PATTERN
+            // matches, so pi schedules a retry and the test can cancel it while pending.
+            out.stopReason = "error";
+            out.errorMessage = "500 Internal Server Error";
+            stream.push({ type: "error", reason: "error", error: out });
+            stream.end();
+            return;
+          }
           if ((polish || restore && toolCount === 0 || boundary && toolCount < 2) && !wantsToolCall(context)) {
             const thinking = { type: "thinking" as const, thinking: "" };
             out.content.push(thinking);
