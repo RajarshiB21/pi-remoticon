@@ -21,6 +21,7 @@
   },
   "scripts": {
     "core-patch": "tsx scripts/apply-core-patch.ts",
+    "core-patch:audit": "tsx scripts/audit-core-patch.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:setup": "tsx scripts/repair-test-pty.ts",
