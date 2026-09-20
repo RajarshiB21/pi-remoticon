@@ -22,7 +22,7 @@ export const SKILL_PREVIEW_HASH = "1968440d198c79ad4d79adcab84903555a4eb1d29dd72
 export const COMPACT_SKILL_HASH = "43d1513f8461b10580dd3f7b715eef78167db016f39e62d5a3d5853be78af963";
 export const PREVIOUS_UI_HASH = "d3c79adc9c29069e0b45564044b7e4dec074b59b9f9664a9fff891f760304f27";
 export const LEGACY_UI_HASH = "5959d795fa3527de00404f7340a9602631ba421cb31bd315e46ccb042d6f46ff";
-export const UI_HASH = "893c6e99988ba532574af0af69917966962f05036197241209c685b623619eb2";
+export const UI_HASH = "4c5cb61afeed262dcdfc68ca57e6033a37b1414f01abc97be2e156d489e34cbc";
 
 export interface PatchEntry { name: string; find: string; replace: string }
 // MIT excerpts from pi, copyright Mario Zechner. See patches/README.md.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ExtensionAPI, ProviderConfig, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Context, Model, Api, ToolResultMessage, TranscriptContext } from "@earendil-works/pi-ai";
+import type { Model, Api, ToolResultMessage, TranscriptContext } from "@earendil-works/pi-ai";
 import registerFake, { wantsToolCall } from "./fixtures/fake-provider.js";
 
 const user = { role: "user" as const, content: "RUNTOOL", timestamp: 1 };
