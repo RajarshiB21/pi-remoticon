@@ -113,4 +113,18 @@ describe("fullscreen composer/footer lifecycle", () => {
         .toBeGreaterThan(term.viewport.getText().lastIndexOf("user argument retained"));
     } finally { await term.close(); }
   });
+
+  it("keeps a multi-line command on one header line in fullscreen", async () => {
+    const term = await bootPi(30000, 15000, [], { package: true }, undefined, copy.cli);
+    try {
+      term.type("MULTILINE"); term.press("Enter");
+      await term.waitFor("Finished", 8000);
+      const rows = term.viewport.getText().split("\n");
+      // The shell marker is `>` and the whole command collapses to a single row...
+      expect(rows.some(row => row.includes("> Bash(echo alpha ⏎ echo beta)"))).toBe(true);
+      // ...so the second command line never becomes its own transcript row over the footer.
+      expect(rows.some(row => row.trim() === "echo beta")).toBe(false);
+      expect(term.viewport.getText()).toContain("fake-model");
+    } finally { await term.close(); }
+  });
 });

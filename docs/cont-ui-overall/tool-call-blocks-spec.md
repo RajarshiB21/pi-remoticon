@@ -31,9 +31,12 @@ assistant message that requested it. A block is three things: a **header** line
 that names the call, a **branch** line that says what happened, and an optional
 **body** that shows the smallest useful slice of the work — a snippet of a written
 file, the changed region of a diff, the tail of a command's output. Assistant
-prose keeps its white `●`; tool calls use the accent `●`. That colour break is
-the whole isolation mechanism: you can tell at a glance which lines are the
-assistant speaking and which are the agent working.
+prose keeps its white `●`. Tool calls use the accent colour, and the marker
+tells the two kinds apart: a shell command (`bash`, `powershell`) opens with `>`;
+file, edit, search and listing tools (`read`, `write`, `edit`, `grep`, `find`,
+`ls`) keep the accent `●`. That break is the whole isolation mechanism: you can
+tell at a glance which lines are the assistant speaking, which are a read or a
+write, and which are a command running.
 
 Nothing else in the interface changes: the user bar, header, footer, sidebar,
 task panel, thinking block, fetch tree and skill rows all stay as they are.
@@ -42,6 +45,7 @@ task panel, thinking block, fetch tree and skill rows all stay as they are.
 
 ```
 ● Write(docs\cont-ui-overall\mockup.html)          ← header
+> Bash(npm run build)                               ← header (a command uses `>`)
   └ Wrote 191 lines to docs\cont-ui-overall\mockup.html   ← branch
        1  <title>pi UI mockups</title>            ← body (indented under the branch text)
        2  <style>
@@ -50,9 +54,12 @@ task panel, thinking block, fetch tree and skill rows all stay as they are.
           … +181 lines                          ← truncation marker
 ```
 
-- **Header.** `●` in accent, tool name in bold, argument in accent. The argument
-  is the file path for file tools and the command itself for shell tools. It is
-  clipped to the terminal width with a trailing `…`.
+- **Header.** Marker in accent (`>` for `bash`, `powershell`; `●` otherwise),
+  tool name in bold, argument in accent. The argument is the file
+  path for file tools and the command itself for shell tools. A command's newlines
+  are collapsed to one line, and the whole header is clipped to the terminal width
+  with a trailing `…` — never wrapped, because a wrapped header overflows the
+  fullscreen composer.
 - **Branch.** `└` in dim, then one muted line describing the outcome. This line
   is always present and is always one line.
 - **Body.** Zero or more lines, indented to line up with the text after `└`
@@ -71,8 +78,8 @@ task panel, thinking block, fetch tree and skill rows all stay as they are.
 |---|---|---|---|
 | `write` | `Write(path)` | `Wrote N lines to path` | first 10 lines of the file, numbered |
 | `edit` (shown as **Update**) | `Update(path)` | `Added A lines, removed R lines` | the diff, see §5 |
-| `bash` | `Bash(command)` | `exit 0 · 1.2s` (see open item 2) | last 5 lines of output |
-| `powershell` | `PowerShell(command)` | `exit 0 · 1.2s` | last 5 lines of output |
+| `bash` | `> Bash(command)` | `exit 0 · 1.2s` (see open item 2) | last 5 lines of output |
+| `powershell` | `> PowerShell(command)` | `exit 0 · 1.2s` | last 5 lines of output |
 | `read` | `Read(path)` | `N lines` | none |
 | `grep` | `Grep(pattern)` | `N matches in M files` | none |
 | `find` | `Find(pattern)` | `N paths` | none |

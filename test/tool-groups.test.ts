@@ -282,3 +282,49 @@ it("paints a row that asks to paint itself, and leaves its neighbours alone", ()
   expect(plainGroup(group)).toContain("fetch body");
   expect(plainGroup(group)).not.toContain("read body");
 });
+
+it("renders pi edit diffs with padded line numbers and keeps a heredoc command on one header line", () => {
+  initTheme("dark", false);
+  const skillLines = createSkillPresenter({ getTheme: () => theme, truncateToWidth, wrapTextWithAnsi });
+  const groups = createToolGroups({ Container, AssistantMessageComponent, getTheme: () => theme, truncateToWidth, resolvePath: resolveToCwd, skillLines });
+  const chat = new Container();
+  class Row extends Text {
+    toolName = "read"; expanded = false; isPartial = false; cwd = process.cwd();
+    args: Record<string, unknown> = {};
+    result?: { isError: boolean; content: { type: string; text?: string }[]; details?: { diff?: string; firstChangedLine?: number } };
+    remoticonChanged?: () => void;
+    setExpanded() {} setShowImages() {} setImageWidthCells() {}
+  }
+  const add = (name: string, args: Record<string, unknown>, result: Row["result"]) => {
+    const row = new Row("", 0, 0); row.toolName = name; row.args = args; row.result = result;
+    groups.add(chat, row);
+  };
+  // pi pads the line number to the widest one in the hunk; `-  1 line 1` must still parse.
+  add("edit", { path: "big-file.txt" }, {
+    isError: false,
+    content: [{ type: "text", text: "ok" }],
+    details: { diff: ["     ...", "-  1 line 1", "-  2 line two", "  11 context eleven", "+101 added line 1"].join("\n"), firstChangedLine: 101 },
+  });
+  const group = chat.children[0] as InstanceType<typeof groups.Group>;
+  const plain = () => group.render(120).map(stripVTControlCharacters).join("\n");
+  expect(plain()).toContain("Added 1 line, removed 2 lines");
+  expect(plain()).toContain("line 1");
+  expect(plain()).toContain("line two");
+  expect(plain()).toContain("context eleven");
+  expect(plain()).toContain("added line 1");
+  expect(group.render(120).map(stripVTControlCharacters).filter(row => /^\s+-\s+1\s/.test(row))).toHaveLength(1);
+
+  // A heredoc command carries real newlines: the header must stay one line and clip.
+  add("bash", { command: "cd /workspace && python - <<'PY'\nfrom PIL import Image\nim = Image.open('a.png').convert('RGB')\nprint(im.size)\nPY" }, {
+    isError: false, content: [{ type: "text", text: "done" }],
+  });
+  add("read", { path: "readme.md" }, { isError: false, content: [{ type: "text", text: "x" }] });
+  const narrow = group.render(40);
+  expect(narrow.every(line => !line.includes("\n"))).toBe(true);
+  expect(narrow.every(line => visibleWidth(line) <= 40)).toBe(true);
+  const rendered = narrow.map(stripVTControlCharacters).join("\n");
+  expect(rendered).toContain("> Bash(");
+  expect(rendered).toContain("● Read(readme.md)");
+  expect(rendered).not.toContain("> Read");
+  expect(rendered).toContain("…");
+});

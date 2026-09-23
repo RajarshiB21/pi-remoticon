@@ -103,6 +103,7 @@ export default function (pi: ExtensionAPI) {
           const long = JSON.stringify(latestUser?.content ?? "").includes("LONG");
           const retryFail = JSON.stringify(latestUser?.content ?? "").includes("RETRYFAIL");
           const groupRun = JSON.stringify(latestUser?.content ?? "").includes("GROUPTOOLS");
+          const multiline = JSON.stringify(latestUser?.content ?? "").includes("MULTILINE");
           const fetchBad = JSON.stringify(latestUser?.content ?? "").includes("FETCHBAD");
           const taskPlan = JSON.stringify(latestUser?.content ?? "").includes("TASKPLAN");
           const taskGo = JSON.stringify(latestUser?.content ?? "").includes("TASKGO");
@@ -199,6 +200,20 @@ export default function (pi: ExtensionAPI) {
               stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(args), partial: out });
               stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: out });
             }
+            out.stopReason = "toolUse";
+            stream.push({ type: "done", reason: out.stopReason, message: out });
+            stream.end();
+            return;
+          }
+          if (multiline && toolCount === 0) {
+            // A command with a real newline: the fullscreen header must collapse it to one
+            // line, never paint the second command over the composer/footer.
+            const toolCall = { type: "toolCall" as const, id: randomUUID(), name: "bash", arguments: { command: "echo alpha\necho beta" } };
+            const contentIndex = out.content.length;
+            out.content.push(toolCall);
+            stream.push({ type: "toolcall_start", contentIndex, partial: out });
+            stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(toolCall.arguments), partial: out });
+            stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: out });
             out.stopReason = "toolUse";
             stream.push({ type: "done", reason: out.stopReason, message: out });
             stream.end();

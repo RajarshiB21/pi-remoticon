@@ -143,12 +143,14 @@ export function createToolGroups(d: {
     const parsed: DiffLine[] = [];
     let w = 1;
     for (const raw of diff.split("\n")) {
-      const match = /^([-+ ])(\d*)(?: (.*))?$/.exec(raw);
+      // pi pads the line number to the widest one in the hunk (`-  1`, ` 11`, `+101`),
+      // so spaces sit between the sign and the digits; allow them or the content is lost.
+      const match = /^([-+ ])\s*(\d*)\s(.*)$/.exec(raw);
       if (!match) continue;
       const sign = match[1] as "-" | "+" | " ";
       const num = match[2];
       if (num) w = Math.max(w, num.length);
-      parsed.push({ sign, num, text: num ? match[3] ?? "" : "..." });
+      parsed.push({ sign, num, text: num ? match[3] : "..." });
     }
     const isChange = (line: DiffLine) => line.sign === "+" || line.sign === "-";
     return { w, lines: parsed.slice(0, 12), added: parsed.filter(line => line.sign === "+").length, removed: parsed.filter(line => line.sign === "-").length, hidden: parsed.slice(12).filter(isChange).length };
@@ -248,9 +250,16 @@ export function createToolGroups(d: {
   };
   const headerOf = (state: Snapshot, width: number, pad: string, theme: Theme): string => {
     const display = displayNames[state.name] ?? state.name.charAt(0).toUpperCase() + state.name.slice(1);
-    const marker = theme.fg("accent", "●") + " " + theme.bold(display);
-    const head = state.arg ? marker + theme.fg("text", "(") + theme.fg("accent", state.arg) + theme.fg("text", ")") : marker;
-    return d.truncateToWidth(pad + head, width, "");
+    // `>` marks a shell command so a run never reads as assistant prose; file, edit,
+    // search and listing tools keep the assistant's `●`.
+    const bullet = state.name === "bash" || state.name === "powershell" ? ">" : "●";
+    const marker = theme.fg("accent", bullet) + " " + theme.bold(display);
+    // A command can hold real newlines (heredocs, multi-line scripts); collapse them so
+    // the header is exactly one render line, then clip with an ellipsis — extra rows here
+    // are what spill over the fullscreen composer.
+    const arg = state.arg?.replace(/[\r\n]+/g, " ⏎ ");
+    const head = arg ? marker + theme.fg("text", "(") + theme.fg("accent", arg) + theme.fg("text", ")") : marker;
+    return d.truncateToWidth(pad + head, width, "…");
   };
   const renderBlock = (state: Snapshot, width: number, pad: string, theme: Theme): string[] => [
     headerOf(state, width, pad, theme),
