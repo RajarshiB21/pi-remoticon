@@ -26,13 +26,14 @@ describe("patch regression gates", () => {
     term.type("GROUPTOOLS");
     term.press("Enter");
     await term.waitForStable(1200, 30000);
-    const header = term.findAllText(/Read \d+ file/)[0];
+    const header = term.findAllText(/Read\(/)[0];
     expect(header).toBeDefined();
-    const expanded = () => term.viewport.getText().includes("package.json");
+    const expanded = () => term.viewport.getText().includes("offline-tool-fixture");
     expect(expanded()).toBe(false);
     const states: boolean[] = [];
     for (let n = 0; n < 3; n++) {
-      term.click(header.col + 2, header.row);
+      const hit = term.findAllText(/Read\(/)[0];
+      term.click(hit.col + 2, hit.row);
       await term.waitForStable(600, 10000);
       states.push(expanded());
     }

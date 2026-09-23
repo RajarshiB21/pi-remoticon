@@ -37,7 +37,8 @@ it("keeps skills compact in order, including late arguments, partial reads and e
   const group = chat.children[0] as InstanceType<typeof groups.Group>;
   const plain = () => group.render(120).map(stripVTControlCharacters).join("\n");
   expect(plain()).toContain("Skill(declared:skill)\n   └ Loading skill…");
-  expect(plain().match(/Reading 1 file/g)).toHaveLength(2);
+  expect(plain()).toContain("Read(ordinary.txt)");
+  expect(plain()).toContain("Read(references/guide.md)");
   expect(group.entries.map(entry => entry.row)).toEqual([before, skill, after]);
   skill.result = { isError: false, content: [{ type: "text", text: "SKILL_SOURCE_MUST_STAY_HIDDEN" }] };
   skill.remoticonChanged?.();
@@ -119,13 +120,14 @@ it("groups original rows across empty turns, splits owned rows at late content a
   const group = chat.children.find(child => child instanceof groups.Group)! as InstanceType<typeof groups.Group>;
   expect(group.entries.map(entry => entry.row)).toEqual([a.row, b.row, c.row]);
   const plain = () => group.render(90).map(stripVTControlCharacters).join("\n");
-  expect(plain()).toContain("2 reads pending");
+  expect(plain().match(/● Read/g)).toHaveLength(2);
+  expect(plain().match(/● Write/g)).toHaveLength(1);
   expect(group.render(90).join("\n")).toContain("\x1b[38;2;185;165;232m");
   expect(renders).toBe(0);
   b.native.updateResult({ content: [{ type: "text", text: "broken input" }], isError: true });
   a.native.updateResult({ content: [{ type: "text", text: "ok" }], isError: false });
   expect(updates).toBeGreaterThan(0);
-  expect(plain()).toContain("1 read failed");
+  expect(plain()).toContain("failed · broken input");
   expect(plain()).toContain("broken input");
   expect(renders).toBe(0);
   second.remoticonVisible = true; second.remoticonVisibilityChanged?.();
@@ -134,7 +136,7 @@ it("groups original rows across empty turns, splits owned rows at late content a
   expect(split.entries.map(entry => entry.row)).toEqual([b.row, c.row]);
   expect(b.native).toBeInstanceOf(ToolExecutionComponent);
   groups.stop(chat);
-  expect(split.render(90).map(stripVTControlCharacters).join("\n")).toContain("1 write interrupted");
+  expect(split.render(90).map(stripVTControlCharacters).join("\n")).toContain("interrupted");
   const event = { type: "click", button: "left", x: 2, y: 1, width: 90, height: 20, screenX: 2, screenY: 1, shift: false, alt: false, ctrl: false } satisfies TuiMouseEvent;
   expect(split.handleMouse(event)?.handled).toBe(true);
   expect(split.render(90).map(stripVTControlCharacters).join("\n")).toContain("native result");
@@ -167,21 +169,20 @@ it("groups original rows across empty turns, splits owned rows at late content a
     groups.add(chat, value.row, 2);
   }
   const summary = chat.children.at(-1) as InstanceType<typeof groups.Group>;
-  expect(summary.render(120).map(stripVTControlCharacters)[0]).toBe("    Reading 2 files · running 1 command");
+  expect(summary.render(120).map(stripVTControlCharacters)[0]).toBe("  ● Read(first.txt)");
   for (const { native } of rows) native.updateResult({ content: [{ type: "text", text: "ok" }], isError: false });
-  expect(summary.render(120).map(stripVTControlCharacters)[0]).toBe("    Read 2 files · ran 1 command");
+  expect(summary.render(120).map(stripVTControlCharacters)[0]).toBe("  ● Read(first.txt)");
   expect(summary.render(120).join("\n")).not.toMatch(/[▸▾]/);
   commentary.remoticonLastKind = "thinking"; commentary.remoticonVisibilityChanged?.();
   expect(summary.render(120)[0]).toBe("");
   commentary.remoticonLastKind = "text"; commentary.remoticonVisibilityChanged?.();
   expect(summary.render(120)[0]).not.toBe("");
   summary.setOutputPad(0);
-  expect(summary.render(120).map(stripVTControlCharacters)[0]).toMatch(/^ {2}Read/);
+  expect(summary.render(120).map(stripVTControlCharacters)[0]).toMatch(/^● Read/);
   const failed = makeRow("read"); Object.assign(failed.row, { args: { path: "first.txt" } }); groups.add(chat, failed.row, 0);
   failed.native.updateResult({ content: [{ type: "text", text: "denied" }], isError: true });
   const failure = summary.render(120).map(stripVTControlCharacters);
-  expect(failure[0]).toContain("Read 2 files · ran 1 command · 1 read failed");
-  expect(failure[1]).toBe("    ! read: denied");
+  expect(failure.join("\n")).toContain("failed · denied");
   expect(summary.handleMouse({ ...event, type: "press", y: 0 })?.handled).toBe(true);
   expect(summary.expanded).toBe(false);
   expect(summary.handleMouse({ ...event, y: 0 })?.handled).toBe(true);
@@ -191,7 +192,9 @@ it("groups original rows across empty turns, splits owned rows at late content a
     const tool = makeRow(name); groups.add(operations, tool.row);
     tool.native.updateResult({ content: [{ type: "text", text: "ok" }], isError: false });
   }
-  expect(operations.render(120).map(stripVTControlCharacters).join("\n")).toContain("Ran 2 searches · listed 2 directories");
+  expect(operations.render(120).map(stripVTControlCharacters).join("\n")).toContain("● Grep");
+  expect(operations.render(120).map(stripVTControlCharacters).join("\n")).toContain("● Find");
+  expect(operations.render(120).map(stripVTControlCharacters).join("\n")).toContain("● Ls");
 });
 
 it("shows an extension-supplied group summary from the first update to settle", () => {
@@ -234,7 +237,9 @@ it("shows an extension-supplied group summary from the first update to settle", 
   (read.row as unknown as { args: unknown }).args = { path: "a.ts" };
   groups.add(chat, read.row);
   groups.stop(chat);
-  expect(plain(group)).toContain("Stopped · Fetched 3 pages · 1 dead end · Fetched 2 pages · 1 read interrupted");
+  expect(plain(group)).toContain("Fetched 3 pages · 1 dead end · Fetched 2 pages");
+  expect(plain(group)).toContain("Read(a.ts)");
+  expect(plain(group)).toContain("interrupted");
 });
 
 it("paints a row that asks to paint itself, and leaves its neighbours alone", () => {

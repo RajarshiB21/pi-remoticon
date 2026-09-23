@@ -22,7 +22,8 @@ export const SKILL_PREVIEW_HASH = "1968440d198c79ad4d79adcab84903555a4eb1d29dd72
 export const COMPACT_SKILL_HASH = "43d1513f8461b10580dd3f7b715eef78167db016f39e62d5a3d5853be78af963";
 export const PREVIOUS_UI_HASH = "d3c79adc9c29069e0b45564044b7e4dec074b59b9f9664a9fff891f760304f27";
 export const LEGACY_UI_HASH = "5959d795fa3527de00404f7340a9602631ba421cb31bd315e46ccb042d6f46ff";
-export const UI_HASH = "4c5cb61afeed262dcdfc68ca57e6033a37b1414f01abc97be2e156d489e34cbc";
+export const AGGREGATE_SUMMARY_UI_HASH = "4c5cb61afeed262dcdfc68ca57e6033a37b1414f01abc97be2e156d489e34cbc";
+export const UI_HASH = "c99beb2771818fb14cc2a754e7b338c88fb43267b52dcec8072ea8814574a9d6";
 
 export interface PatchEntry { name: string; find: string; replace: string }
 // MIT excerpts from pi, copyright Mario Zechner. See patches/README.md.
@@ -106,8 +107,8 @@ function validateManifest(value: unknown, target: string, edits: readonly Edit[]
     if (!record || typeof record !== "object" || paths.has(record.path)) throw new Error("Duplicate or invalid manifest target");
     paths.add(record.path);
     const edit = edits.find(e => e.path === record.path);
-    if (!edit || record.originalHash !== ORIGINAL_HASH || ![THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, RESTORATION_HASH, SKILL_PREVIEW_HASH, COMPACT_SKILL_HASH, LEGACY_UI_HASH, PREVIOUS_UI_HASH, UI_HASH].includes(record.patchedHash) ||
-        record.previousHash !== undefined && ![THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, RESTORATION_HASH, SKILL_PREVIEW_HASH, COMPACT_SKILL_HASH, LEGACY_UI_HASH, PREVIOUS_UI_HASH, UI_HASH, ORIGINAL_HASH].includes(record.previousHash)) {
+    if (!edit || record.originalHash !== ORIGINAL_HASH || ![THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, RESTORATION_HASH, SKILL_PREVIEW_HASH, COMPACT_SKILL_HASH, LEGACY_UI_HASH, PREVIOUS_UI_HASH, AGGREGATE_SUMMARY_UI_HASH, UI_HASH].includes(record.patchedHash) ||
+        record.previousHash !== undefined && ![THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, RESTORATION_HASH, SKILL_PREVIEW_HASH, COMPACT_SKILL_HASH, LEGACY_UI_HASH, PREVIOUS_UI_HASH, AGGREGATE_SUMMARY_UI_HASH, UI_HASH, ORIGINAL_HASH].includes(record.previousHash)) {
       throw new Error("Unsupported manifest file or historical fingerprint");
     }
   }
@@ -127,7 +128,7 @@ export function inspectPlan(
   const modified: string[] = [];
   for (const [path, content] of files) {
     const hash = sha256(content);
-    if ([THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, RESTORATION_HASH, SKILL_PREVIEW_HASH, COMPACT_SKILL_HASH, LEGACY_UI_HASH, PREVIOUS_UI_HASH, UI_HASH].includes(hash)) {
+    if ([THIN_BAR_HASH, S1_HASH, INITIAL_UI_HASH, RESTORATION_PREVIEW_HASH, RESTORATION_COLOR_HASH, RESTORATION_GESTURE_HASH, RESTORATION_HASH, SKILL_PREVIEW_HASH, COMPACT_SKILL_HASH, LEGACY_UI_HASH, PREVIOUS_UI_HASH, AGGREGATE_SUMMARY_UI_HASH, UI_HASH].includes(hash)) {
       const restored = hash === THIN_BAR_HASH ? content.replace(PATCHES[0].replace, PATCHES[0].find) : backups.get(path);
       if (restored === undefined) throw new Error("Missing original backup for managed UI patch");
       if (sha256(restored) !== ORIGINAL_HASH) throw new Error("Legacy original recovery failed");

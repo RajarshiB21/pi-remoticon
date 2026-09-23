@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="686.5" viewBox="0 0 1240 686.5" font-family="'Cascadia Mono','JetBrains Mono',Consolas,'DejaVu Sans Mono',monospace">
+<rect width="1240" height="686.5" fill="#101012"/>
+<text x="26" y="44" font-size="19" font-weight="700" fill="#f3efe6">Tool calls — per-call blocks (settled state)</text>
+<text x="26" y="64" font-size="13" fill="#a4a5ae">White ● = assistant prose.  Accent ● = a tool call.  The colour break is the isolation signal.</text>
+<rect x="26" y="74" width="1188" height="572.5" rx="10" fill="#161618" stroke="#2c2c31"/>
+<text x="48" y="113.5" font-size="15.5" xml:space="preserve"><tspan fill="#e8e4dc">● </tspan><tspan fill="#e8e4dc">Three changes: one write, two updates.</tspan></text>
+<text x="48" y="137" font-size="15.5" xml:space="preserve"> </text>
+<text x="48" y="160.5" font-size="15.5" xml:space="preserve"><tspan fill="#8abeb7">● </tspan><tspan fill="#f3efe6">Write</tspan><tspan fill="#e8e4dc">(</tspan><tspan fill="#8abeb7">docs\cont-ui-overall\mockup.html</tspan><tspan fill="#e8e4dc">)</tspan></text>
+<text x="48" y="184" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">  └ </tspan><tspan fill="#a4a5ae">Wrote 191 lines to docs\cont-ui-overall\mockup.html</tspan></text>
+<text x="48" y="207.5" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">       1  </tspan><tspan fill="#a4a5ae">&lt;title&gt;pi UI mockups&lt;/title&gt;</tspan></text>
+<text x="48" y="231" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">       2  </tspan><tspan fill="#a4a5ae">&lt;style&gt;</tspan></text>
+<text x="48" y="254.5" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">       3  </tspan><tspan fill="#a4a5ae">  :root{</tspan></text>
+<text x="48" y="278" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">       ⋯</tspan></text>
+<text x="48" y="301.5" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">      10  </tspan><tspan fill="#a4a5ae">    --dim:#6f6f6f;</tspan></text>
+<text x="48" y="325" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">          … +181 lines</tspan></text>
+<text x="48" y="348.5" font-size="15.5" xml:space="preserve"> </text>
+<text x="48" y="372" font-size="15.5" xml:space="preserve"><tspan fill="#8abeb7">● </tspan><tspan fill="#f3efe6">Update</tspan><tspan fill="#e8e4dc">(</tspan><tspan fill="#8abeb7">docs\cont-ui-overall\mockup.html</tspan><tspan fill="#e8e4dc">)</tspan></text>
+<text x="48" y="395.5" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">  └ </tspan><tspan fill="#a4a5ae">Added 3 lines, removed 3 lines</tspan></text>
+<text x="48" y="419" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">     162  </tspan><tspan fill="#a4a5ae">  &lt;div class=&quot;reach&quot;&gt;</tspan></text>
+<rect x="27" y="424" width="1186" height="23.5" fill="#2e1a1c"/>
+<text x="48" y="442.5" font-size="15.5" xml:space="preserve"><tspan fill="#e59b95">   - 165  </tspan><tspan fill="#e59b95">&lt;li&gt;&lt;span class=&quot;ok&quot;&gt;✕&lt;/span&gt; — Everything in sections 2, 3, 4 …&lt;/li&gt;</tspan></text>
+<rect x="27" y="447.5" width="1186" height="23.5" fill="#152a1e"/>
+<text x="48" y="466" font-size="15.5" xml:space="preserve"><tspan fill="#8fe0a6">   + 165  </tspan><tspan fill="#8fe0a6">&lt;li&gt;&lt;span class=&quot;ok&quot;&gt;✓ buildable&lt;/span&gt; — Everything in sections 2, 3, 4 …&lt;/li&gt;</tspan></text>
+<text x="48" y="489.5" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">     168  </tspan><tspan fill="#a4a5ae">  &lt;/ul&gt;</tspan></text>
+<text x="48" y="513" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">          ⋯ 1 hunk · +3 −3</tspan></text>
+<text x="48" y="536.5" font-size="15.5" xml:space="preserve"> </text>
+<text x="48" y="560" font-size="15.5" xml:space="preserve"><tspan fill="#8abeb7">● </tspan><tspan fill="#f3efe6">Bash</tspan><tspan fill="#e8e4dc">(</tspan><tspan fill="#8abeb7">Get-ChildItem -Path . -Filter &quot;*.json&quot; | Select-Object Name | Head -5</tspan><tspan fill="#e8e4dc">)</tspan></text>
+<text x="48" y="583.5" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">  └ </tspan><tspan fill="#a4a5ae">2 files · 120ms</tspan></text>
+<text x="48" y="607" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">       </tspan><tspan fill="#a4a5ae">package.json</tspan></text>
+<text x="48" y="630.5" font-size="15.5" xml:space="preserve"><tspan fill="#92949e">       </tspan><tspan fill="#a4a5ae">package-lock.json</tspan></text>
+<text x="26" y="670.5" font-size="13.5" fill="#a4a5ae">Diff bands are raw RGB (theme has no diff-background role). Context is trimmed to 4 lines; the whole diff prints at most 12 lines.</text>
+</svg>
