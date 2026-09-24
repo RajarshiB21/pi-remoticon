@@ -28,3 +28,6 @@ AGENTS.md
 
 # Python bytecode from local helper checks
 __pycache__/
+
+# pi stuff
+.pi/ 
