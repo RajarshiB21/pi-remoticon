@@ -52,7 +52,7 @@
 		"toolTitle": "text",
 		"toolOutput": "muted",
 
-		"mdHeading": "#f0c674",
+		"mdHeading": "#00d7ff",
 		"mdLink": "#81a2be",
 		"mdLinkUrl": "dim",
 		"mdCode": "accent",
